@@ -90,10 +90,6 @@ pillow >= 8.0.0
 requests >= 2.25.0
 cftime >= 1.3.0
 
-markdown
-
-Copy code
-
 ### **Optional Dependencies**
 
 
@@ -104,24 +100,17 @@ For advanced features
 scipy >= 1.5.0     # Scientific computing
 pandas >= 1.1.0    # Data analysis
 
-yaml
-
-Copy code
-
 ---
 
 ## 🚀 Installation
 
 ### **1. Clone the Repository**
 
-```bash
 git clone https://github.com/YOUR_USERNAME/gvview.git
 cd gvview
 
 2. Create Conda Environment (Recommended)
-bash
 
-Copy code
 # Create environment with all dependencies
 conda create -n gvview python=3.9
 conda activate gvview
@@ -139,9 +128,7 @@ conda install -c conda-forge cartopy
 pip install pillow requests cftime
 
 3. Alternative: pip Installation
-bash
 
-Copy code
 # Create virtual environment
 python -m venv gvview-env
 source gvview-env/bin/activate  # On Windows: gvview-env\Scripts\activate
@@ -152,9 +139,6 @@ pip install numpy matplotlib pyqt5 arm-pyart cartopy pillow requests cftime
 4. Optional: County Shapefiles
 For high-resolution US county boundaries:
 
-bash
-
-Copy code
 # Download NOAA county shapefiles
 mkdir shape_files
 cd shape_files
@@ -164,9 +148,7 @@ cd ..
 
 🎮 Usage
 Basic Usage
-bash
 
-Copy code
 python GVview.py
 
 Quick Start Guide
@@ -251,21 +233,15 @@ Percentile-based range detection (1st-99th)
 Diverging colormaps for velocity-like data
 🖼️ Screenshots
 Main Interface
-sql
 
-Copy code
 [Placeholder - Add screenshot of main window]
 
 Multi-field Display
-csharp
 
-Copy code
 [Placeholder - Add screenshot of 2x2 or 3x3 grid]
 
 Map Mode with Annotations
-sql
 
-Copy code
 [Placeholder - Add screenshot with zoom and annotations]
 
 🗺️ Supported NEXRAD Sites
@@ -350,8 +326,8 @@ NOAA - NEXRAD data and site information
 Cartopy - Geospatial plotting capabilities
 PyQt5 - GUI framework
 📧 Contact
-Author: [Your Name]
-Email: [your.email@nasa.gov]
+Author: Jason Pippitt
+Email: [jason.l.pippitt@nasa.gov]
 GitHub: @YOUR_USERNAME
 Issues: Report bugs or request features
 📚 Documentation
@@ -389,18 +365,4 @@ If you find this tool useful, please consider giving it a star! ⭐
 
 Made with ❤️ for the radar community
 
-yaml
-
-Copy code
-
 ---
-
-## 🎨 **Optional: Add Badges Section**
-
-You can add this at the top after the title:
-
-
-[![DOI](https://zenodo.org/badge/YOUR_DOI.svg)](https://zenodo.org/badge/latestdoi/YOUR_REPO)
-[![Documentation](https://img.shields.io/badge/docs-latest-brightgreen.svg)](https://your-docs-url.com)
-[![PyPI](https://img.shields.io/pypi/v/gvview.svg)](https://pypi.org/project/gvview/)
-[![Downloads](https://pepy.tech/badge/gvview)](https://pepy.tech/project/gvview/)
