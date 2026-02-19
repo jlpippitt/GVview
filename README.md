@@ -106,10 +106,11 @@ pandas >= 1.1.0    # Data analysis
 
 ### **1. Clone the Repository**
 
-git clone https://github.com/YOUR_USERNAME/gvview.git
+git clone https://github.com/jlpippitt/gvview.git
+
 cd gvview
 
-2. Create Conda Environment (Recommended)
+### **2. Create Conda Environment (Recommended)
 
 # Create environment with all dependencies
 conda create -n gvview python=3.9
