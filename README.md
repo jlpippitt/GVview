@@ -67,8 +67,8 @@ A professional, interactive radar data visualization tool built for the NASA GPM
 ## 📦 Dependencies
 ### Required Python Packages
 
-python >= 3.7
-numpy >= 1.19.0
+- python >= 3.7
+- numpy >= 1.19.0
 matplotlib >= 3.3.0
 pyqt5 >= 5.15.0
 arm-pyart >= 1.12.0
@@ -255,46 +255,6 @@ Colorbar does not match data
 - Try auto-detection
 - Verify data range using Data Info dialog
 
-### Platform-Specific
-
-macOS Retina Display
-- Layouts automatically scale for high-DPI displays
-- Adjust font scale in Layout dialog if needed
-
-Linux
-- Install Qt5 platform plugins: sudo apt-get install python3-pyqt5
-- For Cartopy: sudo apt-get install libgeos-dev
-
-Windows
-- Ensure Visual C++ Redistributable is installed
-- Use Anaconda for easier dependency management
-
-## Contributing
-
-Contributions are welcome! Please follow these guidelines:
-
-1. Fork the repository
-2. Create a feature branch: git checkout -b feature/new-feature
-3. Commit changes: git commit -m 'Add new feature'
-4. Push to branch: git push origin feature/new-feature
-5. Open a Pull Request
-
-### Code Style
-- Follow PEP 8 guidelines
-- Use 4 spaces for indentation
-- Add docstrings to all functions
-- Comment complex logic
-
-### Testing
-- Test with multiple radar formats
-- Verify on different platforms
-- Check memory usage with large files
-- Test all interactive features
-
-## License
-
-This project is licensed under the MIT License - see the LICENSE file for details.
-
 ## Acknowledgments
 
 - NASA GPM Ground Validation - Funding and support
@@ -306,7 +266,7 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 ## Contact
 
 - GitHub Issues: Report bugs or request features
-- Email: your.email@nasa.gov
+- Email: jason.l.pippitt@nasa.gov
 
 ## Documentation
 
@@ -332,18 +292,6 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 - Custom colorbar settings
 - Multi-field display
 - Auto-detection of unknown fields
-
-## Roadmap
-
-### Planned Features
-- Time series animation
-- Volume rendering
-- QVP plots
-- Dual-radar analysis tools
-- Export to GeoTIFF/KML
-- Plugin system
-- Batch processing mode
-- Web interface option
 
 ## Citation
 
