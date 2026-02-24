@@ -67,8 +67,10 @@ A professional, interactive radar data visualization tool built for the NASA GPM
 ## 📦 Dependencies
 ### Required Python Packages
 
-- python >= 3.7
-- numpy >= 1.19.0
+### Required Python Packages
+
+python >= 3.7
+numpy >= 1.19.0
 matplotlib >= 3.3.0
 pyqt5 >= 5.15.0
 arm-pyart >= 1.12.0
@@ -93,19 +95,24 @@ pandas >= 1.1.0
 
 git clone https://github.com/YOUR_USERNAME/gvview.git
 cd gvview
+
 conda create -n gvview python=3.9
 conda activate gvview
+
 conda install -c conda-forge arm_pyart
 conda install -c conda-forge pyqt
 conda install -c conda-forge cartopy
+
 pip install pillow requests cftime
 
 ### Option 2: pip Installation
 
 git clone https://github.com/YOUR_USERNAME/gvview.git
 cd gvview
+
 python -m venv gvview-env
 source gvview-env/bin/activate
+
 pip install -r requirements.txt
 
 ### Optional: County Shapefiles
