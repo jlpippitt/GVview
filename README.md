@@ -65,305 +65,293 @@ A professional, interactive radar data visualization tool built for the NASA GPM
 ---
 
 ## 📦 Dependencies
+### Required Python Packages
 
-### **Required Python Packages**
-
-
-Core Dependencies
 python >= 3.7
 numpy >= 1.19.0
 matplotlib >= 3.3.0
 pyqt5 >= 5.15.0
-
-Radar Data Processing
 arm-pyart >= 1.12.0
 netCDF4 >= 1.5.0
 xarray >= 0.16.0
 h5py >= 3.0.0
-
-Geospatial
 cartopy >= 0.18.0
 shapely >= 1.7.0
-
-Additional
 pillow >= 8.0.0
 requests >= 2.25.0
 cftime >= 1.3.0
 
-### **Optional Dependencies**
+### Optional Dependencies
 
+wradlib >= 1.10.0
+scipy >= 1.5.0
+pandas >= 1.1.0
 
-For specific radar formats
-wradlib >= 1.10.0  # Additional radar utilities
+## Installation
 
-For advanced features
-scipy >= 1.5.0     # Scientific computing
-pandas >= 1.1.0    # Data analysis
+### Option 1: Conda Environment (Recommended)
 
----
-
-## 🚀 Installation
-
-### **1. Clone the Repository**
-
-git clone https://github.com/jlpippitt/gvview.git
-
+git clone https://github.com/YOUR_USERNAME/gvview.git
 cd gvview
-
-### **2. Create Conda Environment (Recommended)
-
-# Create environment with all dependencies
 conda create -n gvview python=3.9
 conda activate gvview
-
-# Install PyART and dependencies
 conda install -c conda-forge arm_pyart
-
-# Install PyQt5
 conda install -c conda-forge pyqt
-
-# Install Cartopy
 conda install -c conda-forge cartopy
-
-# Install remaining packages
 pip install pillow requests cftime
 
-3. Alternative: pip Installation
+### Option 2: pip Installation
 
-# Create virtual environment
+git clone https://github.com/YOUR_USERNAME/gvview.git
+cd gvview
 python -m venv gvview-env
-source gvview-env/bin/activate  # On Windows: gvview-env\Scripts\activate
+source gvview-env/bin/activate
+pip install -r requirements.txt
 
-# Install dependencies
-pip install numpy matplotlib pyqt5 arm-pyart cartopy pillow requests cftime
+### Optional: County Shapefiles
 
-4. Optional: County Shapefiles
-For high-resolution US county boundaries:
-
-# Download NOAA county shapefiles
 mkdir shape_files
 cd shape_files
 wget https://www.weather.gov/source/gis/Shapefiles/County/countyl010g.zip
 unzip countyl010g.zip
 cd ..
 
-🎮 Usage
-Basic Usage
+## Usage
+
+### Basic Usage
 
 python GVview.py
 
-Quick Start Guide
-Load Local File
+### Quick Start Guide
 
-Click "Load Radar File"
-Select your radar file (.nc, .h5, .hdf5, etc.)
-File format is auto-detected
-Download NEXRAD Data
+#### 1. Load Local File
+- Click Load Radar File
+- Select your radar file
+- File format is auto-detected
 
-Select site from dropdown (e.g., "KDOX - Dover AFB, DE")
-Click "Load" to download latest scan
-Click "Check" to verify site status
-Visualize Data
+#### 2. Download NEXRAD Data
+- Select site from dropdown
+- Click Load to download latest scan
+- Click Check to verify site status
 
-Select field from dropdown (e.g., CZ, VR, DR)
-Choose sweep/elevation angle
-Toggle between "Fast" and "Map" plotting modes
-Click "Update" to refresh plot
-Multi-field Display
+#### 3. Visualize Data
+- Select field from dropdown
+- Choose sweep/elevation angle
+- Toggle between Fast and Map plotting modes
+- Click Update to refresh plot
 
-Check "Multi-field" checkbox
-Click "Select Fields"
-Choose multiple fields to display
-Click "Update"
-Zoom and Pan
+#### 4. Multi-field Display
+- Check Multi-field checkbox
+- Click Select Fields
+- Choose multiple fields to display
+- Click Update
 
-Click "Zoom Mode" in toolbar
-Click and drag on plot to draw zoom box
-Release to apply zoom
-Click "Reset Zoom" to return to full view
-Save Plot
+#### 5. Zoom and Pan
+- Click Zoom Mode in toolbar
+- Click and drag on plot to draw zoom box
+- Release to apply zoom
+- Click Reset Zoom to return to full view
 
-Click "Save" button
-Choose output filename
-Plot saved as high-resolution PNG
-⚙️ Configuration
-Layout Tuning
+#### 6. Save Plot
+- Click Save button
+- Choose output filename
+- Plot saved as high-resolution PNG
+
+## Configuration
+
+### Layout Tuning
+
 Access via Layout button in toolbar:
+- Figure Size
+- Margins
+- Title Position
+- Spacing
+- Font Scale
+- Auto-Calibrate
 
-Figure Size - Width and height in inches
-Margins - Top, bottom, left, right spacing
-Title Position - Vertical placement of main title
-Spacing - Horizontal and vertical spacing between subplots
-Font Scale - Global font size multiplier
-Auto-Calibrate - Automatically optimize layout
-Colorbar Settings
+### Colorbar Settings
+
 Access via Colorbar button in toolbar:
+- Min/Max Values
+- Colormap selection
+- Reset to defaults
 
-Min/Max Values - Custom data range per field
-Colormap - Choose from 40+ colormaps
-Reset - Return to default settings
-Annotations
+### Annotations
+
 Access via Annotations button in toolbar:
+- Add Points
+- Labels
+- Symbols
+- Colors
+- Quick Add radar location
 
-Add Points - Custom lat/lon markers
-Labels - Text annotations
-Symbols - Choose marker style (circle, triangle, etc.)
-Colors - Customize marker and label colors
-Quick Add - Insert current radar location
-📋 Supported Fields
-Dual-Polarization Variables
-CZ/DZ/DBZH - Reflectivity (dBZ)
-VR/VEL - Radial Velocity (m/s)
-SW - Spectrum Width (m/s)
-DR/ZDR - Differential Reflectivity (dB)
-PH/PHIDP - Differential Phase (deg)
-KD/KDP - Specific Differential Phase (deg/km)
-RH/RHOHV - Correlation Coefficient
-Derived Products
-FH/FS - Summer Hydrometeor ID
-FW/NT - Winter Hydrometeor ID
-RC - HIDRO Rain Rate (mm/hr)
-RP - Polarimetric Rain Rate (mm/hr)
-MW/MI - Water/Ice Mass (g/m³)
-DM - Median Drop Diameter (mm)
-NW - Normalized Intercept Parameter
-Auto-Detection
-Unknown fields are automatically analyzed
-Smart colormap selection based on field characteristics
-Percentile-based range detection (1st-99th)
-Diverging colormaps for velocity-like data
-🖼️ Screenshots
-Main Interface
+## Supported Fields
 
-[Placeholder - Add screenshot of main window]
+### Dual-Polarization Variables
+- CZ, DZ, DBZH, reflectivity - Reflectivity (dBZ)
+- VR, VEL, velocity - Radial Velocity (m/s)
+- SW, spectrum_width - Spectrum Width (m/s)
+- DR, ZDR, differential_reflectivity - Differential Reflectivity (dB)
+- PH, PHIDP, differential_phase - Differential Phase (deg)
+- KD, KDP, specific_differential_phase - Specific Differential Phase (deg/km)
+- RH, RHOHV, cross_correlation_ratio - Correlation Coefficient
 
-Multi-field Display
+### Derived Products
+- FH, FS - Summer Hydrometeor ID
+- FW, NT - Winter Hydrometeor ID
+- EC - Echo Classification
+- RC - HIDRO Rain Rate (mm/hr)
+- RP - Polarimetric Rain Rate (mm/hr)
+- RA - Attenuation Rain Rate (mm/hr)
+- MW, MI - Water/Ice Mass (g/m³)
+- DM - Median Drop Diameter (mm)
+- NW - Normalized Intercept Parameter
 
-[Placeholder - Add screenshot of 2x2 or 3x3 grid]
+### Auto-Detection for Unknown Fields
+- Automatic analysis of unknown fields
+- Smart colormap selection based on field characteristics
+- Percentile-based range detection
+- Diverging colormaps for velocity-like data
 
-Map Mode with Annotations
+## Supported NEXRAD Sites
 
-[Placeholder - Add screenshot with zoom and annotations]
+### United States
+All 160 NEXRAD WSR-88D sites organized by state
 
-🗺️ Supported NEXRAD Sites
-United States
-All 160 NEXRAD WSR-88D sites
-Organized by state in dropdown menu
-Real-time data availability
-International
-Guam (PGUA)
-South Korea (RKSG, RKJK)
-Japan (RODN)
-Check Site Status
-Use the "Check" button to verify:
+### International
+- Guam: PGUA
+- South Korea: RKSG, RKJK
+- Japan: RODN
 
-Site operational status
-Available data files
-Most recent scan time
-🔧 Troubleshooting
-Common Issues
-"Could not load file"
+## Troubleshooting
 
-Ensure file format is supported
-Check for corrupted files
-Try decompressing .gz files manually
-"NEXRAD download failed"
+### Common Issues
 
-Check internet connection
-Verify site code is correct (4 letters)
-Some sites may be temporarily offline
-"Plots are too small/large"
+Could not load file
+- Ensure file format is supported
+- Check for corrupted files
+- Try decompressing files manually
+- Check file permissions
 
-Use "Layout" button to adjust figure size
-Try "Auto-Calibrate" for automatic optimization
-Adjust padding factor (0.5-1.0)
-"Zoom rectangle is laggy"
+NEXRAD download failed
+- Check internet connection
+- Verify site code is correct
+- Some sites may be temporarily offline
+- Try Check button to verify site status
 
-This is normal for complex map projections
-Use "Fast" mode for smoother interaction
-Reduce number of displayed fields
-"Colorbar doesn't match data"
+Plots are too small/large
+- Use Layout button to adjust figure size
+- Try Auto-Calibrate for automatic optimization
+- Adjust padding factor
 
-Reset field settings via "Colorbar" dialog
-Check for masked/missing data
-Try auto-detection by loading unknown field name
-Platform-Specific
+Zoom rectangle is laggy
+- Use Fast mode for smoother interaction
+- Reduce number of displayed fields
+- Throttling automatically optimizes updates
+
+Colorbar does not match data
+- Reset field settings via Colorbar dialog
+- Check for masked/missing data
+- Try auto-detection
+- Verify data range using Data Info dialog
+
+### Platform-Specific
+
 macOS Retina Display
+- Layouts automatically scale for high-DPI displays
+- Adjust font scale in Layout dialog if needed
 
-Layouts automatically scale for high-DPI
-If fonts are too large, adjust font scale in Layout dialog
 Linux
+- Install Qt5 platform plugins: sudo apt-get install python3-pyqt5
+- For Cartopy: sudo apt-get install libgeos-dev
 
-May need to install Qt5 platform plugins
-sudo apt-get install python3-pyqt5
 Windows
+- Ensure Visual C++ Redistributable is installed
+- Use Anaconda for easier dependency management
 
-Ensure Visual C++ Redistributable is installed
-Some Cartopy features require GEOS library
-🤝 Contributing
+## Contributing
+
 Contributions are welcome! Please follow these guidelines:
 
-Fork the repository
-Create a feature branch (git checkout -b feature/new-feature)
-Commit changes (git commit -m 'Add new feature')
-Push to branch (git push origin feature/new-feature)
-Open a Pull Request
-Code Style
-Follow PEP 8 guidelines
-Use 4 spaces for indentation
-Add docstrings to all functions
-Comment complex logic
-Testing
-Test with multiple radar formats
-Verify on different platforms (Windows/macOS/Linux)
-Check memory usage with large files
-📄 License
+1. Fork the repository
+2. Create a feature branch: git checkout -b feature/new-feature
+3. Commit changes: git commit -m 'Add new feature'
+4. Push to branch: git push origin feature/new-feature
+5. Open a Pull Request
+
+### Code Style
+- Follow PEP 8 guidelines
+- Use 4 spaces for indentation
+- Add docstrings to all functions
+- Comment complex logic
+
+### Testing
+- Test with multiple radar formats
+- Verify on different platforms
+- Check memory usage with large files
+- Test all interactive features
+
+## License
+
 This project is licensed under the MIT License - see the LICENSE file for details.
 
-🙏 Acknowledgments
-NASA GPM Ground Validation - Funding and support
-Py-ART - ARM Radar Toolkit for data I/O and processing
-NOAA - NEXRAD data and site information
-Cartopy - Geospatial plotting capabilities
-PyQt5 - GUI framework
-📧 Contact
-Author: Jason Pippitt
-Email: [jason.l.pippitt@nasa.gov]
-GitHub: @YOUR_USERNAME
-Issues: Report bugs or request features
-📚 Documentation
-Additional Resources
-Py-ART Documentation
-NEXRAD Data Archive
-Cartopy Documentation
-PyQt5 Tutorial
-Radar Data Formats
-CfRadial Standard
-ODIM H5 Specification
-NEXRAD Level II Format
-🔄 Version History
-v1.0.0 (2026-01-XX)
-Initial release
-Multi-format radar data support
-Interactive PPI/RHI visualization
-NEXRAD real-time download
-Zoom and annotation tools
-Custom colorbar settings
-Multi-field display
-Auto-detection of unknown fields
-🚦 Roadmap
-Planned Features
- Time series animation
- Volume rendering (3D visualization)
- QVP (Quasi-Vertical Profile) plots
- Dual-radar analysis tools
- Export to GeoTIFF/KML
- Plugin system for custom products
- Batch processing mode
- Web interface option
-⭐ Star History
-If you find this tool useful, please consider giving it a star! ⭐
+## Acknowledgments
 
-Made with ❤️ for the radar community
+- NASA GPM Ground Validation - Funding and support
+- Py-ART - ARM Radar Toolkit for data I/O and processing
+- NOAA - NEXRAD data and site information
+- Cartopy - Geospatial plotting capabilities
+- PyQt5 - GUI framework
+
+## Contact
+
+- GitHub Issues: Report bugs or request features
+- Email: your.email@nasa.gov
+
+## Documentation
+
+### Additional Resources
+- Py-ART Documentation: https://arm-doe.github.io/pyart/
+- NEXRAD Data Archive: https://www.ncdc.noaa.gov/nexradinv/
+- Cartopy Documentation: https://scitools.org.uk/cartopy/
+- PyQt5 Tutorial: https://www.riverbankcomputing.com/static/Docs/PyQt5/
+
+### Radar Data Formats
+- CfRadial Standard: https://github.com/NCAR/CfRadial
+- ODIM H5 Specification: https://www.eumetnet.eu/odim/
+- NEXRAD Level II Format: https://www.ncdc.noaa.gov/data-access/radar-data/nexrad
+
+## Version History
+
+### v1.0.0
+- Initial release
+- Multi-format radar data support
+- Interactive PPI/RHI visualization
+- NEXRAD real-time download
+- Zoom and annotation tools
+- Custom colorbar settings
+- Multi-field display
+- Auto-detection of unknown fields
+
+## Roadmap
+
+### Planned Features
+- Time series animation
+- Volume rendering
+- QVP plots
+- Dual-radar analysis tools
+- Export to GeoTIFF/KML
+- Plugin system
+- Batch processing mode
+- Web interface option
+
+## Citation
+
+If you use GVview in your research, please cite:
+
+Jason Pippitt, 2026. GVview: GPM Ground Validation Radar Viewer. 
+GitHub repository, https://github.com/YOUR_USERNAME/gvview
 
 ---
+
+Made with ❤️ for the radar meteorology community
