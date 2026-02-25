@@ -81,12 +81,6 @@ A professional, interactive radar data visualization tool built for the NASA GPM
 * requests >= 2.25.0
 * cftime >= 1.3.0
 
-### Optional Dependencies
-
-* wradlib >= 1.10.0
-* scipy >= 1.5.0
-* pandas >= 1.1.0
-
 ## Installation
 
 ### Option 1: Conda Environment (Recommended)
