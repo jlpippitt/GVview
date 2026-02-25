@@ -181,6 +181,48 @@ Access via Annotations button in toolbar:
 - Colors
 - Quick Add radar location
 
+## Screenshots
+
+### Main Interface
+![Main Interface](screenshots/main_interface.png)
+*GVview main window showing PPI display of reflectivity data with control panel*
+
+### Multi-Field Display
+![Multi-Field Display](screenshots/multi_field.png)
+*2x2 grid display showing reflectivity, velocity, differential reflectivity, and correlation coefficient*
+
+### Map Mode with Geographic Features
+![Map Mode](screenshots/map_mode.png)
+*High-resolution map overlay with state boundaries, counties, and custom annotations*
+
+### Interactive Zoom Tool
+![Zoom Tool](screenshots/zoom_demo.png)
+*Click-and-drag zoom box with real-time preview (left: before zoom, right: after zoom)*
+
+### NEXRAD Real-Time Download
+![NEXRAD Download](screenshots/nexrad_download.png)
+*Real-time NEXRAD Level II data download with site selector and status checker*
+
+### RHI Vertical Cross-Section
+![RHI Display](screenshots/rhi_display.png)
+*Range-Height Indicator showing vertical structure of precipitation*
+
+### Custom Colorbar Settings
+![Colorbar Settings](screenshots/colorbar_dialog.png)
+*Per-field customization of data ranges and colormaps*
+
+### Layout Tuning
+![Layout Tuning](screenshots/layout_tuning.png)
+*Fine-tune figure dimensions, margins, spacing, and fonts with auto-calibration*
+
+### Hydrometeor Classification
+![HID Display](screenshots/hid_display.png)
+*Summer hydrometeor identification with discrete colorbar labels*
+
+---
+
+*Note: Screenshots are for demonstration purposes. Your actual display may vary based on radar data and platform.*
+
 ## Supported Fields
 
 ### Dual-Polarization Variables
