@@ -91,8 +91,8 @@ A professional, interactive radar data visualization tool built for the NASA GPM
 
 ### Option 1: Conda Environment (Recommended)
 
-    git clone https://github.com/YOUR_USERNAME/gvview.git
-    cd gvview
+    git clone https://github.com/jlpippitt/GVview.git
+    cd GVview
 
     conda create -n gvview python=3.9
     conda activate gvview
@@ -105,8 +105,8 @@ A professional, interactive radar data visualization tool built for the NASA GPM
 
 ### Option 2: pip Installation
 
-    git clone https://github.com/YOUR_USERNAME/gvview.git
-    cd gvview
+    git clone https://github.com/jlpippitt/GVview.git
+    cd GVview
 
     python -m venv gvview-env
     source gvview-env/bin/activate
@@ -303,8 +303,6 @@ Colorbar does not match data
 If you use GVview in your research, please cite:
 
 Jason Pippitt, 2026. GVview: GPM Ground Validation Radar Viewer. 
-GitHub repository, https://github.com/YOUR_USERNAME/gvview
+GitHub repository, https://github.com/jlpippitt/GVview
 
 ---
-
-Made with ❤️ for the radar meteorology community
