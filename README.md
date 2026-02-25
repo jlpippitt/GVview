@@ -67,67 +67,65 @@ A professional, interactive radar data visualization tool built for the NASA GPM
 ## 📦 Dependencies
 ### Required Python Packages
 
-### Required Python Packages
-
-python >= 3.7
-numpy >= 1.19.0
-matplotlib >= 3.3.0
-pyqt5 >= 5.15.0
-arm-pyart >= 1.12.0
-netCDF4 >= 1.5.0
-xarray >= 0.16.0
-h5py >= 3.0.0
-cartopy >= 0.18.0
-shapely >= 1.7.0
-pillow >= 8.0.0
-requests >= 2.25.0
-cftime >= 1.3.0
+* python >= 3.7
+* numpy >= 1.19.0
+* matplotlib >= 3.3.0
+* pyqt5 >= 5.15.0
+* arm-pyart >= 1.12.0
+* netCDF4 >= 1.5.0
+* xarray >= 0.16.0
+* h5py >= 3.0.0
+* cartopy >= 0.18.0
+* shapely >= 1.7.0
+* pillow >= 8.0.0
+* requests >= 2.25.0
+* cftime >= 1.3.0
 
 ### Optional Dependencies
 
-wradlib >= 1.10.0
-scipy >= 1.5.0
-pandas >= 1.1.0
+* wradlib >= 1.10.0
+* scipy >= 1.5.0
+* pandas >= 1.1.0
 
 ## Installation
 
 ### Option 1: Conda Environment (Recommended)
 
-git clone https://github.com/YOUR_USERNAME/gvview.git
-cd gvview
+    git clone https://github.com/YOUR_USERNAME/gvview.git
+    cd gvview
 
-conda create -n gvview python=3.9
-conda activate gvview
+    conda create -n gvview python=3.9
+    conda activate gvview
 
-conda install -c conda-forge arm_pyart
-conda install -c conda-forge pyqt
-conda install -c conda-forge cartopy
+    conda install -c conda-forge arm_pyart
+    conda install -c conda-forge pyqt
+    conda install -c conda-forge cartopy
 
-pip install pillow requests cftime
+    pip install pillow requests cftime
 
 ### Option 2: pip Installation
 
-git clone https://github.com/YOUR_USERNAME/gvview.git
-cd gvview
+    git clone https://github.com/YOUR_USERNAME/gvview.git
+    cd gvview
 
-python -m venv gvview-env
-source gvview-env/bin/activate
+    python -m venv gvview-env
+    source gvview-env/bin/activate
 
-pip install -r requirements.txt
+    pip install -r requirements.txt
 
 ### Optional: County Shapefiles
 
-mkdir shape_files
-cd shape_files
-wget https://www.weather.gov/source/gis/Shapefiles/County/countyl010g.zip
-unzip countyl010g.zip
-cd ..
+    mkdir shape_files
+    cd shape_files
+    wget https://www.weather.gov/source/gis/Shapefiles/County/countyl010g.zip
+    unzip countyl010g.zip
+    cd ..
 
 ## Usage
 
 ### Basic Usage
 
-python GVview.py
+    python GVview.py
 
 ### Quick Start Guide
 
