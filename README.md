@@ -77,7 +77,6 @@ A professional, interactive radar data visualization tool built for the NASA GPM
 * h5py >= 3.0.0
 * cartopy >= 0.18.0
 * shapely >= 1.7.0
-* pillow >= 8.0.0
 * requests >= 2.25.0
 * cftime >= 1.3.0
 
@@ -137,13 +136,11 @@ A professional, interactive radar data visualization tool built for the NASA GPM
 - Select field from dropdown
 - Choose sweep/elevation angle
 - Toggle between Fast and Map plotting modes
-- Click Update to refresh plot
 
 #### 4. Multi-field Display
 - Check Multi-field checkbox
 - Click Select Fields
 - Choose multiple fields to display
-- Click Update
 
 #### 5. Zoom and Pan
 - Click Zoom Mode in toolbar
