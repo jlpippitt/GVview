@@ -199,7 +199,7 @@ Access via Annotations button in toolbar:
 ![NEXRAD Download](screenshots/nexrad_download.png)
 *Real-time NEXRAD Level II data download with site selector and status checker*
 
-### RHI Vertical Cross-Section
+### RHI Plotting
 ![RHI Display](screenshots/rhi_display.png)
 *Range-Height Indicator showing vertical structure of precipitation*
 
@@ -209,7 +209,8 @@ Access via Annotations button in toolbar:
 
 ### Layout Tuning
 ![Layout Tuning](screenshots/layout_tuning.png)
-*Fine-tune figure dimensions, margins, spacing, and fonts with auto-calibration*
+*Fine-tune figure dimensions, margins, spacing, and fonts*
+
 ---
 
 *Note: Screenshots are for demonstration purposes. Your actual display may vary based on radar data and platform.*
