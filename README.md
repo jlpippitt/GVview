@@ -183,17 +183,13 @@ Access via Annotations button in toolbar:
 
 ## Screenshots
 
-### Main Interface
-![Main Interface](screenshots/main_interface.png)
-*GVview main window showing PPI display of reflectivity data with control panel*
-
-### Multi-Field Display
-![Multi-Field Display](screenshots/multi_field.png)
-*2x2 grid display showing reflectivity, velocity, differential reflectivity, and correlation coefficient*
-
 ### Map Mode with Geographic Features
 ![Map Mode](screenshots/map_mode.png)
 *High-resolution map overlay with state boundaries, counties, and custom annotations*
+
+### Multi-Field Display
+![Multi-Field Display](screenshots/multi_field.png)
+*1x3 grid display showing CZ (Corrected Reflectivity [dBZ]), RC (HIDRO Rain Rate [mm/hr]), and RP (PolZR Rain Rate [mm/hr])*
 
 ### Interactive Zoom Tool
 ![Zoom Tool](screenshots/zoom_demo.png)
@@ -214,11 +210,6 @@ Access via Annotations button in toolbar:
 ### Layout Tuning
 ![Layout Tuning](screenshots/layout_tuning.png)
 *Fine-tune figure dimensions, margins, spacing, and fonts with auto-calibration*
-
-### Hydrometeor Classification
-![HID Display](screenshots/hid_display.png)
-*Summer hydrometeor identification with discrete colorbar labels*
-
 ---
 
 *Note: Screenshots are for demonstration purposes. Your actual display may vary based on radar data and platform.*
