@@ -36,7 +36,7 @@ A professional, interactive radar data visualization tool built for the NASA GPM
 - **Height Control** - Configurable max height for RHI plots (1-25 km)
 
 ### 📋 **Metadata**
-- **Data Info Button** - View files Meradata
+- **Data Info Button** - View Meradata
 
 ### 🎨 **Customization**
 - **Colorbar Settings** - Custom colormaps, min/max values per field
@@ -149,34 +149,6 @@ A professional, interactive radar data visualization tool built for the NASA GPM
 - Choose output filename
 - Plot saved as high-resolution PNG
 
-## Configuration
-
-### Layout Tuning
-
-Access via Layout button in toolbar:
-- Figure Size
-- Margins
-- Title Position
-- Spacing
-- Font Scale
-- Auto-Calibrate
-
-### Colorbar Settings
-
-Access via Colorbar button in toolbar:
-- Min/Max Values
-- Colormap selection
-- Reset to defaults
-
-### Annotations
-
-Access via Annotations button in toolbar:
-- Add Points
-- Labels
-- Symbols
-- Colors
-- Quick Add radar location
-
 ## Screenshots
 
 ### Map Mode with Geographic Features
@@ -210,6 +182,34 @@ Access via Annotations button in toolbar:
 ---
 
 *Note: Screenshots are for demonstration purposes. Your actual display may vary based on radar data and platform.*
+
+## Configuration
+
+### Layout Tuning
+
+Access via Layout button in toolbar:
+- Figure Size
+- Margins
+- Title Position
+- Spacing
+- Font Scale
+- Auto-Calibrate
+
+### Colorbar Settings
+
+Access via Colorbar button in toolbar:
+- Min/Max Values
+- Colormap selection
+- Reset to defaults
+
+### Annotations
+
+Access via Annotations button in toolbar:
+- Add Points
+- Labels
+- Symbols
+- Colors
+- Quick Add radar location
 
 ## Troubleshooting
 
