@@ -1,7 +1,12 @@
-import os
+import os, sys
 os.environ['PYART_QUIET'] = '1'  # Suppress PyART citation
+
+# ==================== SUPPRESS macOS Qt WARNINGS ====================
+if sys.platform == "darwin":  # macOS only
+    os.environ['QT_MAC_WANTS_LAYER'] = '1'
+    os.environ['QT_LOGGING_RULES'] = 'qt.qpa.*=false'
+
 import pyart
-import sys
 import numpy as np
 import math
 import copy
@@ -13,15 +18,29 @@ import matplotlib.pyplot as plt
 import matplotlib.colors as colors
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.colors import Normalize
+
+# ==================== SUPPRESS NSOpenPanel WARNING DURING PyQt5 IMPORT ====================
+if sys.platform == "darwin":
+    import io
+    old_stderr = sys.stderr
+    sys.stderr = io.StringIO()  # Temporarily capture stderr
+
+# Import PyQt5 (warning happens here)
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
                             QHBoxLayout, QComboBox, QPushButton, QLabel, QSizePolicy,
                             QFileDialog, QCheckBox, QSpinBox, QDoubleSpinBox,
                             QDialog, QTabWidget, QFormLayout, QDialogButtonBox, 
                             QTableWidget, QHeaderView, QTableWidgetItem, QToolBar, 
                             QAction, QMessageBox, QListWidget, QAbstractItemView,
-                            QTextEdit, QLineEdit)
+                            QTextEdit, QLineEdit, QFrame)
 from PyQt5.QtCore import Qt, QTimer, QThread, pyqtSignal, QSettings
 from PyQt5.QtGui import QFont
+
+# Restore stderr after PyQt5 is imported
+if sys.platform == "darwin":
+    sys.stderr = old_stderr
+
+# Continue with other imports
 import cartopy.crs as ccrs
 import cartopy.feature as cfeature
 import cartopy.io.shapereader as shpreader
@@ -35,20 +54,146 @@ import shutil
 import requests
 import platform
 import mmap
+import warnings
+warnings.filterwarnings('ignore')
 
 plt.rcParams['figure.max_open_warning'] = 0
 plt.rcParams['axes.formatter.useoffset'] = False
 
+def create_gv_colormaps():
+    """
+    Create all GPM-GV legacy colormaps from IDL RSL color tables.
+    Returns a dictionary of colormap objects.
+    """
+    from matplotlib.colors import ListedColormap
+    
+    colormaps = {}
+    
+    # ==================== GV_DZ: Reflectivity ====================
+    # Range: -20 to 60 dBZ, Bin: 5 dBZ, 17 colors
+    r = [0, 102, 153,   0,   0,   0,   0,   0,   0, 255, 255, 255, 241, 196, 151, 239, 135]
+    g = [0, 102, 153, 218, 109,   0, 241, 190, 139, 253, 195, 138,   0,   0,   0,   0,  35]
+    b = [0, 102, 153, 223, 227, 232,   1,   0,   0,   0,   0,   0,   0,   0,   0, 255, 255]
+    colors_dz = [[r[i]/255., g[i]/255., b[i]/255.] for i in range(len(r))]
+    cmap_dz = ListedColormap(colors_dz, name='GV_DZ')
+    cmap_dz.set_bad(color='black')
+    colormaps['GV_DZ'] = cmap_dz
+    
+    # ==================== GV_VR: Velocity ====================
+    # Range: -32.5 to +32.5 m/s, Bin: 5 m/s, 15 colors
+    r = [0,   0,   0,   0,   0,   0,   0, 255, 246, 255, 255, 241, 196, 151, 239]
+    g = [0,   0, 109, 218, 139, 190, 241, 255, 246, 195, 138,   0,   0,   0,   0]
+    b = [0, 232, 223, 227,   0,   0,   1, 255,   0,   0,   0,   0,   0,   0, 255]
+    colors_vr = [[r[i]/255., g[i]/255., b[i]/255.] for i in range(len(r))]
+    cmap_vr = ListedColormap(colors_vr, name='GV_VR')
+    cmap_vr.set_bad(color='black')
+    colormaps['GV_VR'] = cmap_vr
+    
+    # ==================== GV_SW: Spectrum Width ====================
+    # Range: 0 to 21+ m/s, Bin: 2 m/s, 14 colors
+    r = [0,   0,   0,   0,   0,   0,   0, 255, 255, 255, 241, 196, 151, 239]
+    g = [0, 218, 109,   0, 241, 190, 139, 253, 195, 138,   0,   0,   0,   0]
+    b = [0, 223, 227, 232,   1,   0,   0,   0,   0,   0,   0,   0,   0, 255]
+    colors_sw = [[r[i]/255., g[i]/255., b[i]/255.] for i in range(len(r))]
+    cmap_sw = ListedColormap(colors_sw, name='GV_SW')
+    cmap_sw.set_bad(color='black')
+    colormaps['GV_SW'] = cmap_sw
+    
+    # ==================== GV_DR: Differential Reflectivity (ZDR) ====================
+    # Range: -3 to +3 dB, Bin: 0.5 dB, 16 colors
+    r = [0, 153,   0,   0,   0,   0,   0,   0, 255, 255, 255, 241, 196, 151, 239, 135]
+    g = [0, 153, 218, 109,   0, 241, 190, 139, 253, 195, 138,   0,   0,   0,   0,  35]
+    b = [0, 153, 223, 227, 232,   1,   0,   0,   0,   0,   0,   0,   0,   0, 255, 255]
+    colors_dr = [[r[i]/255., g[i]/255., b[i]/255.] for i in range(len(r))]
+    cmap_dr = ListedColormap(colors_dr, name='GV_DR')
+    cmap_dr.set_bad(color='black')
+    colormaps['GV_DR'] = cmap_dr
+    
+    # ==================== GV_KD: Specific Differential Phase (KDP) ====================
+    # Range: -2 to +3 deg/km, Bin: 0.5 deg/km, 14 colors
+    r = [0,   0,   0,   0,   0,   0, 255, 255, 255, 241, 196, 151, 239, 135]
+    g = [0, 218,   0, 241, 190, 139, 253, 195, 138,   0,   0,   0,   0,  35]
+    b = [0, 223, 232,   1,   0,   0,   0,   0,   0,   0,   0,   0, 255, 255]
+    colors_kd = [[r[i]/255., g[i]/255., b[i]/255.] for i in range(len(r))]
+    cmap_kd = ListedColormap(colors_kd, name='GV_KD')
+    cmap_kd.set_bad(color='black')
+    colormaps['GV_KD'] = cmap_kd
+    
+    # ==================== GV_RH: Correlation Coefficient (RhoHV) ====================
+    # Range: 0.0 to 0.98+, variable bins, 13 colors
+    r = [0,   0,   0,   0,   0,   0,   0, 246, 255, 255, 241, 196, 151]
+    g = [0,   0, 109, 218, 139, 190, 241, 246, 195, 138,   0,   0,   0]
+    b = [0, 232, 223, 227,   0,   0,   1,   0,   0,   0,   0,   0,   0]
+    colors_rh = [[r[i]/255., g[i]/255., b[i]/255.] for i in range(len(r))]
+    cmap_rh = ListedColormap(colors_rh, name='GV_RH')
+    cmap_rh.set_bad(color='black')
+    colormaps['GV_RH'] = cmap_rh
+    
+    # ==================== GV_PH: Differential Phase (PhiDP) ====================
+    # Range: 0 to 360 degrees, 13 colors
+    r = [0,   0,   0,   0,   0,   0,   0, 246, 255, 255, 241, 196, 151]
+    g = [0,   0, 109, 218, 139, 190, 241, 246, 195, 138,   0,   0,   0]
+    b = [0, 232, 223, 227,   0,   0,   1,   0,   0,   0,   0,   0,   0]
+    colors_ph = [[r[i]/255., g[i]/255., b[i]/255.] for i in range(len(r))]
+    cmap_ph = ListedColormap(colors_ph, name='GV_PH')
+    cmap_ph.set_bad(color='black')
+    colormaps['GV_PH'] = cmap_ph
+    
+    # ==================== GV_HC: Hydrometeor Classification ====================
+    # 8 classes
+    r = [0,  72,   0,   0, 153,   0, 239, 135]
+    g = [0,  72, 109, 218, 153, 241,   0,  35]
+    b = [0,  72, 227, 223, 153,   0, 255, 255]
+    colors_hc = [[r[i]/255., g[i]/255., b[i]/255.] for i in range(len(r))]
+    cmap_hc = ListedColormap(colors_hc, name='GV_HC')
+    cmap_hc.set_bad(color='black')
+    colormaps['GV_HC'] = cmap_hc
+    
+    # ==================== GV_RR: Rain Rate ====================
+    # Range: 0 to 80+ mm/hr, Bin: 5 mm/hr, 18 colors
+    r = [0, 102,   0,   0,   0,   0,   0,   0,   0, 255, 255, 255, 241, 196, 151, 239, 135, 255]
+    g = [0, 153, 153, 218, 109,   0, 241, 190, 139, 253, 195, 138,   0,   0,   0,   0,  35, 255]
+    b = [0, 153, 153, 223, 227, 232,   1,   0,   0,   0,   0,   0,   0,   0,   0, 255, 255, 255]
+    colors_rr = [[r[i]/255., g[i]/255., b[i]/255.] for i in range(len(r))]
+    cmap_rr = ListedColormap(colors_rr, name='GV_RR')
+    cmap_rr.set_bad(color='black')
+    colormaps['GV_RR'] = cmap_rr
+    
+    return colormaps
+
+# Create and store all GV colormaps globally
+_GV_COLORMAPS = create_gv_colormaps()
+
+# Register all colormaps with matplotlib
+for name, cmap in _GV_COLORMAPS.items():
+    try:
+        matplotlib.cm.register_cmap(name=name, cmap=cmap)
+    except:
+        pass
+
+#print(f"✓ Registered {len(_GV_COLORMAPS)} GPM-GV legacy colormaps: {', '.join(_GV_COLORMAPS.keys())}")
+
 def check_cm(cmap_name):
-    """Handles old and new versions of colormaps"""
+    """Handles old and new versions of colormaps, including custom GV colormaps
+    
+    ALWAYS returns a STRING name, never a colormap object
+    """
+    
+    # Handle custom GPM-GV colormaps - return NAME string, not object
+    if cmap_name in _GV_COLORMAPS:
+        return cmap_name  # Return the name string
+    
+    # Handle standard colormaps - return name string
     candidates = [cmap_name, f'pyart_{cmap_name}']
     for name in candidates:
         try:
-            plt.cm.get_cmap(name)
-            return name
+            plt.cm.get_cmap(name)  # Test if it exists
+            return name  # Return the working name
         except:
             continue
+    
     # Fallback to a basic colormap
+    print(f"WARNING: Colormap '{cmap_name}' not found, using 'viridis'")
     return 'viridis'
     
 # Define HID colormaps at module level for use in field configs
@@ -72,6 +217,8 @@ _FIELD_CONFIGS = {
                'title': 'Corrected Reflectivity [dBZ]', 'cmap': check_cm('NWSRef')},
         'DZ': {'units': 'Zh [dBZ]', 'vmin': 0, 'vmax': 70, 'Nbins': 14,
                'title': 'RAW Reflectivity [dBZ]', 'cmap': check_cm('NWSRef')},
+        'ZZ': {'units': 'Zh [dBZ]', 'vmin': 0, 'vmax': 70, 'Nbins': 14,
+               'title': 'RAW Reflectivity [dBZ]', 'cmap': check_cm('NWSRef')},       
         'DR': {'units': 'Zdr [dB]', 'vmin': -1, 'vmax': 3, 'Nbins': 16,
                'title': 'Differential Reflectivity [dB]', 'cmap': check_cm('HomeyerRainbow')},
         'VR': {'units': 'Velocity [m/s]', 'vmin': -20, 'vmax': 20, 'Nbins': 12,
@@ -97,15 +244,15 @@ _FIELD_CONFIGS = {
         'SQ': {'units': 'SQI', 'vmin': 0, 'vmax': 1, 'Nbins': 10,
                'title': 'Signal Quality Index', 'cmap': check_cm('LangRainbow12')},
         'FH': {'units': 'HID', 'vmin': 0, 'vmax': 11, 'Nbins': 0,
-               'title': 'Summer Hydrometeor Identification', 'cmap': _CMAPHID_SUMMER},
+               'title': 'Summer Hydrometeor Identification', 'cmap': 'CMAPHID_SUMMER'},
         'FS': {'units': 'HID', 'vmin': 0, 'vmax': 11, 'Nbins': 0,
-               'title': 'Summer Hydrometeor Identification', 'cmap': _CMAPHID_SUMMER},
+               'title': 'Summer Hydrometeor Identification', 'cmap': 'CMAPHID_SUMMER'},
         'FW': {'units': 'HID', 'vmin': 0, 'vmax': 8, 'Nbins': 0,
-               'title': 'Winter Hydrometeor Identification', 'cmap': _CMAPHID_WINTER},
+               'title': 'Winter Hydrometeor Identification', 'cmap': 'CMAPHID_WINTER'},
         'NT': {'units': 'HID', 'vmin': 0, 'vmax': 8, 'Nbins': 0,
-               'title': 'No TEMP Winter Hydrometeor Identification', 'cmap': _CMAPHID_WINTER},
+               'title': 'No TEMP Winter Hydrometeor Identification', 'cmap': 'CMAPHID_WINTER'},
         'EC': {'units': 'HID', 'vmin': 0, 'vmax': 9, 'Nbins': 0,
-               'title': 'Radar Echo Classification', 'cmap': _CMAPHID_EC},
+               'title': 'Radar Echo Classification', 'cmap': 'CMAPHID_EC'},
         'MRC': {'units': 'HIDRO Method', 'vmin': 0, 'vmax': 5, 'Nbins': 0,
                'title': 'HIDRO Method', 'cmap': _CMAP_METH},
         'MW': {'units': 'Water Mass [g/m^3]', 'vmin': 0, 'vmax': 3, 'Nbins': 25,
@@ -488,8 +635,8 @@ class LayoutManager:
                         'margin_scale': 2.0,
                         'h_spacing_scale': 1.20,    
                         'v_spacing_scale': 1.20,    
-                        'top_margin': 0.96, 
-                        'bottom_margin': 0.07, 
+                        'top_margin': 0.95, 
+                        'bottom_margin': 0.08, 
                 }
         elif self.n_rows == 1 and self.n_cols == 2:  # 1x2
                 grid_defaults = {
@@ -811,20 +958,121 @@ class RadarSettings:
         
         # Available colormaps
         self.available_cmaps = [
+            # ==================== STANDARD MATPLOTLIB ====================
             'viridis', 'plasma', 'inferno', 'magma', 'cividis',
             'Greys', 'Purples', 'Blues', 'Greens', 'Oranges', 'Reds',
             'YlOrBr', 'YlOrRd', 'OrRd', 'PuRd', 'RdPu', 'BuPu',
             'GnBu', 'PuBu', 'YlGnBu', 'PuBuGn', 'BuGn', 'YlGn',
-            'jet', 'rainbow', 'turbo', 'gist_rainbow',
-            # PyART colormaps
-            'NWSRef', 'NWSVel', 'Carbone42',
-            'HomeyerRainbow', 'LangRainbow12', 'NWS_SPW',
-            'Theodore16', 'RefDiff', 'BlueBrown10'
-        ]
-        
+            'jet', 'rainbow', 'turbo', 'gist_rainbow', 'coolwarm', 'seismic',
+            
+            # ==================== PYART REFLECTIVITY ====================
+            'NWSRef', 'pyart_NWSRef',
+            'RefDiff', 'pyart_RefDiff',
+            'ChaseSpectral', 'pyart_ChaseSpectral',
+            'SpectralExtended', 'pyart_SpectralExtended',
+            
+            # ==================== PYART VELOCITY ====================
+            'NWSVel', 'pyart_NWSVel',
+            'BuDRd', 'pyart_BuDRd',
+            'BuDRd18', 'pyart_BuDRd18',
+            'BuOr', 'pyart_BuOr',
+            'BuOr8', 'pyart_BuOr8',
+            'BuOrR14', 'pyart_BuOrR14',
+            'BuOr12', 'pyart_BuOr12',
+            'RdYlBu11b', 'pyart_RdYlBu11b',
+            
+            # ==================== PYART DIFFERENTIAL REFLECTIVITY (ZDR) ====================
+            'Theodore16', 'pyart_Theodore16',
+            'LangRainbow12', 'pyart_LangRainbow12',
+            'HomeyerRainbow', 'pyart_HomeyerRainbow',
+            'balance', 'pyart_balance',
+            
+            # ==================== PYART PHIDP / KDP ====================
+            'Carbone42', 'pyart_Carbone42',
+            'Carbone17', 'pyart_Carbone17',
+            'Carbone11', 'pyart_Carbone11',
+            
+            # ==================== PYART SPECTRUM WIDTH ====================
+            'NWS_SPW', 'pyart_NWS_SPW',
+            
+            # ==================== PYART OTHER ====================
+            'BlueBrown10', 'pyart_BlueBrown10',
+            'BlueBrown11', 'pyart_BlueBrown11',
+            'BrBu10', 'pyart_BrBu10',
+            'BrBu12', 'pyart_BrBu12',
+            'Wild25', 'pyart_Wild25',
+            'Cat12', 'pyart_Cat12',
+            'StepSeq25', 'pyart_StepSeq25',
+            'SCook18', 'pyart_SCook18',
+            'EWilson17', 'pyart_EWilson17',
+            'GrMg16', 'pyart_GrMg16',
+            'PuOr12', 'pyart_PuOr12',
+            'rate_Z', 'pyart_rate_Z',
+            'acid', 'pyart_acid',
+            'yuv', 'pyart_yuv',
+            
+            # ==================== GPM-GV LEGACY (IDL) ====================
+            'GV_DZ', 'GV_VR', 'GV_SW', 'GV_DR', 'GV_KD', 
+            'GV_RH', 'GV_PH', 'GV_HC', 'GV_RR',
+        ]     
+           
         # Load settings from QSettings
         self.qsettings = QSettings("GPM-GV", "RadarViewer")
         self.load_settings()
+        
+    def get_categorized_cmaps(self):
+        """Return colormaps organized by category for easier selection"""
+        return {
+            'PyART Reflectivity': [
+                'NWSRef', 'pyart_NWSRef', 'RefDiff', 'pyart_RefDiff',
+                'ChaseSpectral', 'pyart_ChaseSpectral', 
+                'SpectralExtended', 'pyart_SpectralExtended'
+            ],
+            'PyART Velocity': [
+                'NWSVel', 'pyart_NWSVel', 'BuDRd', 'pyart_BuDRd',
+                'BuDRd18', 'pyart_BuDRd18', 'BuOr', 'pyart_BuOr',
+                'BuOr8', 'pyart_BuOr8', 'BuOrR14', 'pyart_BuOrR14',
+                'RdYlBu11b', 'pyart_RdYlBu11b'
+            ],
+            'PyART Dual-Pol (ZDR)': [
+                'Theodore16', 'pyart_Theodore16',
+                'LangRainbow12', 'pyart_LangRainbow12',
+                'HomeyerRainbow', 'pyart_HomeyerRainbow',
+                'balance', 'pyart_balance'
+            ],
+            'PyART PhiDP/KDP': [
+                'Carbone42', 'pyart_Carbone42',
+                'Carbone17', 'pyart_Carbone17',
+                'Carbone11', 'pyart_Carbone11'
+            ],
+            'PyART Other': [
+                'NWS_SPW', 'pyart_NWS_SPW',
+                'BlueBrown10', 'pyart_BlueBrown10',
+                'BlueBrown11', 'pyart_BlueBrown11',
+                'Wild25', 'pyart_Wild25'
+            ],
+            'Matplotlib Sequential': [
+                'viridis', 'plasma', 'inferno', 'magma', 'cividis',
+                'Greys', 'Purples', 'Blues', 'Greens', 'Oranges', 'Reds'
+            ],
+            'Matplotlib Diverging': [
+                'coolwarm', 'seismic', 'RdBu', 'RdYlBu', 'RdYlGn'
+            ],
+            'Matplotlib Rainbow': [
+                'jet', 'rainbow', 'turbo', 'gist_rainbow'
+            ],
+            'GPM-GV Legacy (IDL)': [
+                'GV_DZ',  # Reflectivity (-20 to 60 dBZ)
+                'GV_VR',  # Velocity (-32.5 to +32.5 m/s)
+                'GV_SW',  # Spectrum Width (0 to 21+ m/s)
+                'GV_DR',  # Differential Reflectivity (-3 to +3 dB)
+                'GV_KD',  # Specific Differential Phase (-2 to +3 deg/km)
+                'GV_RH',  # Correlation Coefficient (0 to 0.98+)
+                'GV_PH',  # Differential Phase (0 to 360 deg)
+                'GV_HC',  # Hydrometeor Classification
+                'GV_RR',  # Rain Rate (0 to 80+ mm/hr)
+            ]
+        }
     
     def load_settings(self):
         """Load settings from QSettings"""
@@ -833,26 +1081,84 @@ class RadarSettings:
             self.qsettings.setArrayIndex(i)
             field = self.qsettings.value("field")
             if field:
+                # Load colormap name - KEEP AS STRING, don't convert
+                cmap_name = self.qsettings.value("cmap")
+                if cmap_name == "@Invalid()":
+                    cmap_name = None
+                
+                # Load colorbar ticks
+                ticks_str = self.qsettings.value("colorbar_ticks")
+                if ticks_str and ticks_str != "@Invalid()":
+                    try:
+                        colorbar_ticks = [float(x) for x in ticks_str.split(',')]
+                    except:
+                        colorbar_ticks = None
+                else:
+                    colorbar_ticks = None
+                
                 settings = {
                     'vmin': self.qsettings.value("vmin", type=float),
                     'vmax': self.qsettings.value("vmax", type=float),
-                    'cmap': self.qsettings.value("cmap"),
-                    'colorbar_ticks': self.qsettings.value("colorbar_ticks")
+                    'cmap': cmap_name,  # Store as STRING
+                    'colorbar_ticks': colorbar_ticks
                 }
                 self.field_settings[field] = settings
         self.qsettings.endArray()
     
     def save_settings(self):
         """Save settings to QSettings"""
+        # Without this, deleted fields remain in QSettings
+        self.qsettings.remove("field_settings")
+        
         self.qsettings.beginWriteArray("field_settings")
         for i, (field, settings) in enumerate(self.field_settings.items()):
             self.qsettings.setArrayIndex(i)
             self.qsettings.setValue("field", field)
-            self.qsettings.setValue("vmin", settings['vmin'])
-            self.qsettings.setValue("vmax", settings['vmax'])
-            self.qsettings.setValue("cmap", settings['cmap'])
-            self.qsettings.setValue("colorbar_ticks", settings['colorbar_ticks'])
+            
+            # Only save numeric values if they're not None
+            if settings['vmin'] is not None:
+                self.qsettings.setValue("vmin", float(settings['vmin']))
+            if settings['vmax'] is not None:
+                self.qsettings.setValue("vmax", float(settings['vmax']))
+        
+            # Save colormap as string name - be very explicit
+            cmap = settings.get('cmap')
+            cmap_name = None
+            if cmap is not None:
+                # Try multiple ways to get the colormap name
+                if hasattr(cmap, 'name'):
+                    cmap_name = str(cmap.name)
+                elif isinstance(cmap, str):
+                    cmap_name = cmap
+                else:
+                    # Last resort - try to convert to string
+                    try:
+                        cmap_name = str(cmap)
+                    except:
+                        cmap_name = "viridis"  # fallback default
+            
+            # Only save if we got a valid string
+            if cmap_name:
+                self.qsettings.setValue("cmap", cmap_name)
+            
+            # Save colorbar ticks as comma-separated string
+            ticks = settings.get('colorbar_ticks')
+            if ticks is not None:
+                try:
+                    # Convert to list if it's a numpy array
+                    if hasattr(ticks, 'tolist'):
+                        ticks = ticks.tolist()
+                    # Convert to comma-separated string
+                    if len(ticks) > 0:
+                        ticks_str = ','.join([str(float(t)) for t in ticks])
+                        self.qsettings.setValue("colorbar_ticks", ticks_str)
+                except Exception as e:
+                    print(f"Error saving colorbar ticks: {e}")
+        
         self.qsettings.endArray()
+        #self.qsettings.clear()
+        self.qsettings.sync()  # Force write to disk
+        #print(f"Settings saved to: {self.qsettings.fileName()}")
     
     def get_field_setting(self, field, setting_name, default=None):
         """Get a setting for a specific field"""
@@ -864,11 +1170,17 @@ class RadarSettings:
     
     def set_field_setting(self, field, setting_name, value):
         """Set a setting for a specific field"""
+        #print(f"=== set_field_setting called ===")
+        #print(f"  field: {field}")
+        #print(f"  setting_name: {setting_name}")
+        #print(f"  value: {value} (type: {type(value)})")
+        
         if field not in self.field_settings:
             self.field_settings[field] = self.default_settings.copy()
         self.field_settings[field][setting_name] = value
-        self.save_settings()
-    
+        
+        #print(f"  field_settings[{field}] now: {self.field_settings[field]}")
+            
     def reset_field_settings(self, field):
         """Reset a field's settings to default"""
         if field in self.field_settings:
@@ -1195,8 +1507,8 @@ class SettingsDialog(QDialog):
         self.settings = settings
         self.parent = parent
         
-        self.setWindowTitle("Radar Display Settings")
-        self.resize(600, 500)
+        self.setWindowTitle("Colorbar Display Settings")
+        self.resize(550, 600)
         
         # Create tabs
         self.tabs = QTabWidget()
@@ -1204,13 +1516,9 @@ class SettingsDialog(QDialog):
         self.general_tab = QWidget()
         
         self.tabs.addTab(self.field_tab, "Field Settings")
-        self.tabs.addTab(self.general_tab, "General Settings")
         
         # Set up the field settings tab
         self.setup_field_tab()
-        
-        # Set up the general settings tab
-        self.setup_general_tab()
         
         # Add buttons
         self.button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel | QDialogButtonBox.Apply)
@@ -1234,13 +1542,20 @@ class SettingsDialog(QDialog):
         self.field_table.setColumnCount(5)
         self.field_table.setHorizontalHeaderLabels(["Field", "Min Value", "Max Value", "Colormap", "Reset"])
         
-        # Adjust column widths
+        # Set minimum width to prevent horizontal scrollbar
+        self.field_table.setMinimumWidth(500)
+        
+        # Adjust column widths - optimized for space
         header = self.field_table.horizontalHeader()
-        header.setSectionResizeMode(0, QHeaderView.Stretch)
-        header.setSectionResizeMode(1, QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(2, QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(3, QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(4, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(0, QHeaderView.ResizeToContents)  # Field name
+        header.setSectionResizeMode(1, QHeaderView.Fixed)              # Min Value
+        header.setSectionResizeMode(2, QHeaderView.Fixed)              # Max Value  
+        header.setSectionResizeMode(3, QHeaderView.ResizeToContents)            # Colormap - takes remaining space
+        header.setSectionResizeMode(4, QHeaderView.ResizeToContents)  # Reset button
+        
+        # Set fixed widths for numeric columns
+        self.field_table.setColumnWidth(1, 90)   # Min Value
+        self.field_table.setColumnWidth(2, 90)   # Max Value
         
         # Populate the table
         self.populate_field_table()
@@ -1263,12 +1578,24 @@ class SettingsDialog(QDialog):
         for row, field in enumerate(fields):
             # Field name
             field_item = QTableWidgetItem(field)
-            field_item.setFlags(field_item.flags() & ~Qt.ItemIsEditable)  # Make read-only
+            field_item.setFlags(field_item.flags() & ~Qt.ItemIsEditable)  
             self.field_table.setItem(row, 0, field_item)
             
-            # Get default values for this field
+            # ==================== GET DEFAULT VALUES ====================
             default_info = get_field_info(self.radar, field)
             default_vmin, default_vmax = default_info[1], default_info[2]
+            default_cmap = default_info[3]  # This is the colormap object or name
+            
+            # Convert colormap to display name
+            if hasattr(default_cmap, 'name'):
+                default_cmap_name = default_cmap.name
+            elif isinstance(default_cmap, str):
+                default_cmap_name = default_cmap
+            else:
+                default_cmap_name = "viridis"
+            
+            # Clean up the name for display (remove 'pyart_' prefix)
+            display_default_name = default_cmap_name.replace('pyart_', '')
             
             # Min value
             vmin_spinbox = QDoubleSpinBox()
@@ -1288,12 +1615,48 @@ class SettingsDialog(QDialog):
             vmax_spinbox.valueChanged.connect(lambda v, f=field: self.settings.set_field_setting(f, 'vmax', v))
             self.field_table.setCellWidget(row, 2, vmax_spinbox)
             
-            # Colormap selection
+            # ==================== COLORMAP SELECTION WITH DEFAULT NAME ====================
             cmap_combo = QComboBox()
-            cmap_combo.addItem("Default", None)
-            for cmap_name in self.settings.available_cmaps:
-                cmap_combo.addItem(cmap_name, cmap_name)
+            cmap_combo.setMaximumWidth(160)
+            cmap_combo.setMaxVisibleItems(15)
+            cmap_combo.setSizeAdjustPolicy(QComboBox.AdjustToContents)
             
+            # ✓ CHANGED: Show default colormap name in the "Default" option
+            cmap_combo.addItem(f"Default ({display_default_name})", None)
+            cmap_combo.insertSeparator(1)
+            
+            # Get categories from centralized method
+            categories = self.settings.get_categorized_cmaps()
+            
+            for category, cmaps in categories.items():
+                # Add category label (simplified from "PyART Reflectivity" to "Reflectivity")
+                display_category = category.replace('PyART ', '').replace('Matplotlib ', '')
+                cmap_combo.addItem(f"── {display_category} ──", None)
+                idx = cmap_combo.count() - 1
+                item = cmap_combo.model().item(idx)
+                item.setEnabled(False)
+                
+                # Add colormaps from this category
+                for cmap_name in cmaps:
+                    # Special handling for GV colormaps
+                    if cmap_name.startswith('GV_'):
+                        # GV colormaps are in our custom dictionary
+                        if cmap_name in _GV_COLORMAPS:
+                            cmap_combo.addItem(cmap_name, cmap_name)
+                    else:
+                        # Try to get from matplotlib
+                        try:
+                            plt.cm.get_cmap(cmap_name)
+                            # Display clean name (remove pyart_ prefix for display)
+                            display_name = cmap_name.replace('pyart_', '')
+                            cmap_combo.addItem(display_name, cmap_name)  # Display vs actual value
+                        except:
+                            pass  # Skip if colormap doesn't exist in this PyART version
+            
+            # BLOCK signals while setting initial value
+            cmap_combo.blockSignals(True)
+            
+            # Set the stored value (won't trigger signal)
             stored_cmap = self.settings.get_field_setting(field, 'cmap')
             if stored_cmap:
                 index = cmap_combo.findData(stored_cmap)
@@ -1301,11 +1664,15 @@ class SettingsDialog(QDialog):
                     cmap_combo.setCurrentIndex(index)
             
             cmap_combo.currentIndexChanged.connect(
-                lambda idx, f=field, c=cmap_combo: 
-                self.settings.set_field_setting(f, 'cmap', c.itemData(idx))
+                lambda idx, f=field, c=cmap_combo, vmin=vmin_spinbox, vmax=vmax_spinbox: 
+                self._save_all_field_settings(f, vmin, vmax, c, idx)
             )
-            self.field_table.setCellWidget(row, 3, cmap_combo)
             
+            # Unblock signals
+            cmap_combo.blockSignals(False)
+            
+            self.field_table.setCellWidget(row, 3, cmap_combo)  
+                   
             # Reset button
             reset_btn = QPushButton("Reset")
             reset_btn.clicked.connect(lambda _, f=field, r=row: self.reset_field_row(f, r))
@@ -1329,27 +1696,38 @@ class SettingsDialog(QDialog):
         cmap_combo = self.field_table.cellWidget(row, 3)
         cmap_combo.setCurrentIndex(0)  # Default
     
-    def setup_general_tab(self):
-        """Set up the general settings tab"""
-        layout = QFormLayout()
-        
-        # Placeholder for future general settings
-        info_label = QLabel("General settings will be added here in future updates")
-        layout.addWidget(info_label)
-        
-        self.general_tab.setLayout(layout)
+    def accept(self):
+        """OK button - save and close"""
+        self.settings.save_settings()  
+        super().accept()
     
     def apply_settings(self):
         """Apply the current settings"""
-        self.settings.save_settings()
+        self.settings.save_settings()  
         self.parent.update_plot()
+        
+    def _save_all_field_settings(self, field, vmin_spinbox, vmax_spinbox, cmap_combo, cmap_idx):
+        """Save all settings for a field (vmin, vmax, cmap)"""
+        # Save colormap
+        self.settings.set_field_setting(field, 'cmap', cmap_combo.itemData(cmap_idx))
+        
+        # Save current vmin/vmax (even if user hasn't explicitly changed them)
+        self.settings.set_field_setting(field, 'vmin', vmin_spinbox.value())
+        self.settings.set_field_setting(field, 'vmax', vmax_spinbox.value())
+        
+        print(f"Saved all settings for {field}: vmin={vmin_spinbox.value()}, vmax={vmax_spinbox.value()}, cmap={cmap_combo.itemData(cmap_idx)}")
 
 def discrete_cmap(N, base_cmap=None):
     """Create an N-bin discrete colormap from the specified input map"""
     try:
-        base = plt.cm.get_cmap(base_cmap)
+        # If base_cmap is already a colormap object, use it directly
+        if hasattr(base_cmap, 'N'):
+            base = base_cmap
+        else:
+            base = plt.cm.get_cmap(base_cmap)
+        
         color_list = base(np.linspace(0, 1, N))
-        cmap_name = base.name + str(N)
+        cmap_name = getattr(base, 'name', 'custom') + str(N)
         return colors.ListedColormap(color_list, cmap_name, N)
     except:
         return plt.cm.get_cmap('viridis')
@@ -1430,8 +1808,25 @@ def get_field_info(radar, field):
     # Try to get from predefined configs first
     if field in _FIELD_CONFIGS:
         config = _FIELD_CONFIGS[field]
+        cmap = config['cmap']
+        
+        # Handle special HID colormaps
+        if cmap == 'CMAPHID_SUMMER':
+            cmap = _CMAPHID_SUMMER
+        elif cmap == 'CMAPHID_WINTER':
+            cmap = _CMAPHID_WINTER
+        elif cmap == 'CMAPHID_EC':
+            cmap = _CMAPHID_EC
+        elif cmap == 'CMAP_METH':
+            cmap = _CMAP_METH
+        # Handle GV colormaps
+        elif isinstance(cmap, str) and cmap in _GV_COLORMAPS:
+            cmap = _GV_COLORMAPS[cmap]
+        elif isinstance(cmap, str):
+            cmap = check_cm(cmap)
+        
         return (config['units'], config['vmin'], config['vmax'], 
-                config['cmap'], config['title'], config['Nbins'])
+                cmap, config['title'], config['Nbins'])
     
     # ==================== AUTO-DETECT FOR UNKNOWN FIELDS ====================
     
@@ -1463,56 +1858,69 @@ def get_field_info(radar, field):
             print(f"  WARNING: Could not locate field '{field}' in data structure")
             return units, vmin, vmax, cmap, title, Nbins
         
-        # ==================== COMPUTE ROBUST MIN/MAX ====================
-        # Use percentiles to avoid outliers skewing the range
-        valid_data = data[~np.isnan(data)]
-        
-        if valid_data.size > 0:
-            # Use 1st and 99th percentile to avoid extreme outliers
-            p01 = float(np.percentile(valid_data, 1))
-            p99 = float(np.percentile(valid_data, 99))
-            
-            # Add 10% padding to the range
-            data_range = p99 - p01
-            vmin = p01 - 0.1 * data_range
-            vmax = p99 + 0.1 * data_range
-            
-            # Round to nice numbers
-            vmin = np.floor(vmin * 10) / 10  # Round down to 0.1
-            vmax = np.ceil(vmax * 10) / 10   # Round up to 0.1
-            
-            print(f"  Auto-detected range: [{vmin:.1f}, {vmax:.1f}] {units}")
-            
-            # ==================== SMART COLORMAP SELECTION ====================
-            # Choose colormap based on data characteristics
-            if vmin < 0 and vmax > 0:
-                # Diverging data (e.g., velocity)
-                cmap = check_cm('NWSVel')
-                print(f"  Selected diverging colormap (data crosses zero)")
-            elif 'velocity' in field.lower() or 'vel' in field.lower():
-                cmap = check_cm('NWSVel')
-            elif 'refl' in field.lower() or 'dbz' in field.lower() or 'zh' in field.lower():
-                cmap = check_cm('NWSRef')
-            elif 'zdr' in field.lower() or 'dr' in field.lower():
-                cmap = check_cm('HomeyerRainbow')
-            elif 'kdp' in field.lower() or 'kd' in field.lower():
-                cmap = check_cm('HomeyerRainbow')
-            elif 'rhohv' in field.lower() or 'rho' in field.lower() or 'correlation' in field.lower():
-                cmap = check_cm('LangRainbow12')
-                # Correlation usually ranges 0-1, but may have been scaled
-                if vmax <= 1.5:
-                    vmin = max(vmin, 0.5)  # Typical correlation lower bound
-                    vmax = 1.0
+        # ==================== COMPUTE ROBUST MIN/MAX (FIXED) ====================
+        # Handle masked arrays and read-only arrays safely
+        try:
+            # Convert to numpy array and make it writable
+            if np.ma.is_masked(data):
+                # For masked arrays, get the unmasked data
+                valid_data = np.ma.compressed(data).copy()
             else:
-                cmap = 'viridis'  # Safe default
+                # For regular arrays, flatten and remove NaNs
+                data_flat = np.asarray(data).flatten()
+                valid_data = data_flat[~np.isnan(data_flat)].copy()
+            
+            if valid_data.size > 0:
+                # Use 1st and 99th percentile to avoid extreme outliers
+                p01 = float(np.percentile(valid_data, 1))
+                p99 = float(np.percentile(valid_data, 99))
                 
-        else:
-            print(f"  WARNING: No valid data found for field '{field}'")
+                # Add 10% padding to the range
+                data_range = p99 - p01
+                vmin = p01 - 0.1 * data_range
+                vmax = p99 + 0.1 * data_range
+                
+                # Round to nice numbers
+                vmin = np.floor(vmin * 10) / 10  # Round down to 0.1
+                vmax = np.ceil(vmax * 10) / 10   # Round up to 0.1
+                
+                #print(f"  Auto-detected range: [{vmin:.1f}, {vmax:.1f}] {units}")
+                
+                # ==================== SMART COLORMAP SELECTION ====================
+                # Choose colormap based on data characteristics
+                if vmin < 0 and vmax > 0:
+                    # Diverging data (e.g., velocity)
+                    cmap = check_cm('NWSVel')
+                    #print(f"  Selected diverging colormap (data crosses zero)")
+                elif 'velocity' in field.lower() or 'vel' in field.lower():
+                    cmap = check_cm('NWSVel')
+                elif 'refl' in field.lower() or 'dbz' in field.lower() or 'zh' in field.lower():
+                    cmap = check_cm('NWSRef')
+                elif 'zdr' in field.lower() or 'dr' in field.lower():
+                    cmap = check_cm('HomeyerRainbow')
+                elif 'kdp' in field.lower() or 'kd' in field.lower():
+                    cmap = check_cm('HomeyerRainbow')
+                elif 'rhohv' in field.lower() or 'rho' in field.lower() or 'correlation' in field.lower():
+                    cmap = check_cm('LangRainbow12')
+                    # Correlation usually ranges 0-1, but may have been scaled
+                    if vmax <= 1.5:
+                        vmin = max(vmin, 0.5)  # Typical correlation lower bound
+                        vmax = 1.0
+                else:
+                    cmap = 'viridis'  # Safe default
+                    
+            else:
+                print(f"  WARNING: No valid data found for field '{field}'")
+                
+        except Exception as compute_error:
+            print(f"  ERROR: Could not compute statistics for '{field}': {compute_error}")
+            # Use safe defaults on computation error
+            vmin, vmax = 0, 70
             
     except Exception as e:
         print(f"  ERROR: Auto-detection failed for '{field}': {e}")
         # Use safe defaults on error
-        
+                
     return units, vmin, vmax, cmap, title, Nbins
 
 def get_radar_info(radar, sweep):
@@ -1803,13 +2211,11 @@ def remove_HDF_header(file):
 def reorder_sweeps(radar):
     """Reorder sweeps in ascending order and fix negative azimuths"""
     final_radar = pyart.util.subset_radar(radar, list(radar.fields), ele_min=0., ele_max=90.)
-    print('New sweep angles:', final_radar.fixed_angle['data'][:])
 
     # Azimuths are negative, modify them to fit 0-360
     if final_radar.azimuth['data'][0] < 0:
         final_radar.azimuth['data'] = np.mod(final_radar.azimuth['data'], 360)
         az = final_radar.get_azimuth(0)
-        print(f"Azimuth Min/Max: {az.min()} {az.max()}")
 
     return final_radar
 
@@ -1902,7 +2308,6 @@ def merge_split_cuts(radar, time_gap=120):
             if ref_field and data.shape == radar_new.fields[ref_field]['data'].shape:
                 radar_new.add_field(field_name, radar_vr.fields[field_name], replace_existing=True)
 
-    print("Merged Elevation Angles:\n", radar_new.fixed_angle['data'])
     return radar_new
 
 class RadarViewer(QMainWindow):
@@ -1926,6 +2331,7 @@ class RadarViewer(QMainWindow):
         self.gridded_data = None
         
         # Initialize settings
+        self.qsettings = QSettings("GPM-GV", "RadarViewer")
         self.settings = RadarSettings()
         
         # Initialize annotation manager
@@ -1963,6 +2369,9 @@ class RadarViewer(QMainWindow):
         # Enable proper backing store
         self.canvas.setUpdatesEnabled(True)
         self.canvas.setMinimumSize(400, 300)
+        
+        self.canvas.setStyleSheet("background-color: white;")  # Forces white background
+        self.figure.patch.set_facecolor('white')
         
         self.canvas.setFocusPolicy(Qt.StrongFocus)
         self.canvas.setFocus()
@@ -2237,37 +2646,32 @@ class RadarViewer(QMainWindow):
         self.toolbar_top = QToolBar("Main Toolbar")
         self.addToolBar(self.toolbar_top)
         
-        # Layout Tuning action
-        layout_action = QAction("Layout", self)
-        layout_action.setToolTip("Tune layout and spacing")
-        layout_action.triggered.connect(self.show_layout_tuning)
-        self.toolbar_top.addAction(layout_action)
-        
         # Data Info action
         data_info_action = QAction("Data Info", self)
         data_info_action.setToolTip("View data metadata and information")
         data_info_action.triggered.connect(self.show_data_info)
         self.toolbar_top.addAction(data_info_action)
+        self.toolbar_top.addSeparator()        
+        
+        # Layout Tuning action
+        layout_action = QAction("Plot Layout", self)
+        layout_action.setToolTip("Tune layout and spacing")
+        layout_action.triggered.connect(self.show_layout_tuning)
+        self.toolbar_top.addAction(layout_action)
+        self.toolbar_top.addSeparator()
+        
+        # Colorbar Settings action
+        settings_action = QAction("Update Colorbars", self)
+        settings_action.setToolTip("Configure Colorbar")
+        settings_action.triggered.connect(self.show_settings)
+        self.toolbar_top.addAction(settings_action)
+        self.toolbar_top.addSeparator()
         
         # Annotations action
-        annotations_action = QAction("Annotations", self)
+        annotations_action = QAction("Add Annotations", self)
         annotations_action.setToolTip("Manage map annotations")
         annotations_action.triggered.connect(self.show_annotations_dialog)
         self.toolbar_top.addAction(annotations_action)
-        
-        # Settings action
-        settings_action = QAction("Colorbar", self)
-        settings_action.setToolTip("Configure display settings")
-        settings_action.triggered.connect(self.show_settings)
-        self.toolbar_top.addAction(settings_action)
-        
-        # Clear data action
-        clear_action = QAction("Clear", self)
-        clear_action.setToolTip("Clear all loaded data and reset viewer")
-        clear_action.triggered.connect(self.clear_all_data)
-        self.toolbar_top.addAction(clear_action)
-        
-        # ZOOM CONTROLS
         self.toolbar_top.addSeparator()
         
         # Zoom Mode toggle
@@ -2282,8 +2686,13 @@ class RadarViewer(QMainWindow):
         reset_zoom_action.setToolTip("Reset to full view")
         reset_zoom_action.triggered.connect(self.reset_zoom)
         self.toolbar_top.addAction(reset_zoom_action)
+        self.toolbar_top.addSeparator()
         
-        # Separator
+        # Clear data action
+        clear_action = QAction("Clear Viewer", self)
+        clear_action.setToolTip("Clear all loaded data and reset viewer")
+        clear_action.triggered.connect(self.clear_all_data)
+        self.toolbar_top.addAction(clear_action)
         self.toolbar_top.addSeparator()
     
     def show_settings(self):
@@ -2649,6 +3058,16 @@ class RadarViewer(QMainWindow):
         if self._resize_timer and self.radar:
             self._resize_timer.start(300)  # 300ms debounce
             
+    def create_separator(self, orientation='vertical'):
+        """Create a separator line"""
+        separator = QFrame()
+        if orientation == 'vertical':
+            separator.setFrameShape(QFrame.VLine)
+        else:
+            separator.setFrameShape(QFrame.HLine)
+        separator.setFrameShadow(QFrame.Sunken)
+        return separator
+            
     def create_control_panel(self):
         """Create the control panel with all UI elements in compact 2-row layout"""
         control_panel = QWidget()
@@ -2662,8 +3081,9 @@ class RadarViewer(QMainWindow):
         self.load_button = QPushButton("Load Radar File")
         self.load_button.clicked.connect(self.load_radar_file)
         row1_layout.addWidget(self.load_button)
+        row1_layout.addWidget(self.create_separator('vertical'))
         
-        row1_layout.addWidget(QLabel("NEXRAD:"))
+        row1_layout.addWidget(QLabel("Realtime NEXRAD:"))
         
         # NEXRAD selection (more compact)
         self.site_combo = QComboBox()
@@ -2937,10 +3357,10 @@ class RadarViewer(QMainWindow):
                 font.setBold(True)
                 item.setFont(font)
         
-        # Set default to KDOX
-        default_index = self.site_combo.findData('KDOX')
-        if default_index >= 0:
-            self.site_combo.setCurrentIndex(default_index)
+        # Add placeholder text at the beginning
+        self.site_combo.insertItem(0, "Select Radar Site", None)
+        self.site_combo.model().item(0).setEnabled(False)  # Make placeholder unselectable
+        self.site_combo.setCurrentIndex(0)
         
         row1_layout.addWidget(self.site_combo)
         
@@ -2951,6 +3371,60 @@ class RadarViewer(QMainWindow):
         self.check_site_button = QPushButton("Check")
         self.check_site_button.clicked.connect(self.check_nexrad_site)
         row1_layout.addWidget(self.check_site_button)
+        row1_layout.addWidget(self.create_separator('vertical'))
+
+        # Radials toggle
+        self.radials_checkbox = QCheckBox("Radials")
+        self.radials_checkbox.setChecked(
+            self.qsettings.value("display/show_radials", True, type=bool)
+        )
+        self.radials_checkbox.setToolTip("Show/hide radial lines (30° intervals)")
+        self.radials_checkbox.stateChanged.connect(self.update_plot)
+        self.radials_checkbox.stateChanged.connect(
+            lambda: self.qsettings.setValue("display/show_radials", self.radials_checkbox.isChecked())
+        )
+        row1_layout.addWidget(self.radials_checkbox)
+        
+        # Range Rings toggle
+        self.range_rings_checkbox = QCheckBox("Range Rings")
+        self.range_rings_checkbox.setChecked(
+            self.qsettings.value("display/show_range_rings", True, type=bool)
+        )
+        self.range_rings_checkbox.setToolTip("Show/hide range rings")
+        self.range_rings_checkbox.stateChanged.connect(self.update_plot)
+        self.range_rings_checkbox.stateChanged.connect(
+            lambda: self.qsettings.setValue("display/show_range_rings", self.range_rings_checkbox.isChecked())
+        )
+        row1_layout.addWidget(self.range_rings_checkbox)
+        
+        # Range Ring Spacing control
+        self.range_ring_spacing_spin = QSpinBox()
+        self.range_ring_spacing_spin.setRange(10, 200)
+        self.range_ring_spacing_spin.setValue(
+            self.qsettings.value("display/range_ring_spacing", 50, type=int)
+        )
+        self.range_ring_spacing_spin.setSuffix(" km")
+        self.range_ring_spacing_spin.setPrefix("@ ")
+        self.range_ring_spacing_spin.setMaximumWidth(90)
+        self.range_ring_spacing_spin.setToolTip("Range ring spacing interval")
+        self.range_ring_spacing_spin.editingFinished.connect(self.update_plot)
+        self.range_ring_spacing_spin.editingFinished.connect(
+            lambda: self.qsettings.setValue("display/range_ring_spacing", 
+                                            self.range_ring_spacing_spin.value())
+        )
+        row1_layout.addWidget(self.range_ring_spacing_spin)
+        
+        # Grid toggle
+        self.grid_checkbox = QCheckBox("Grid")
+        self.grid_checkbox.setChecked(
+            self.qsettings.value("display/show_grid", True, type=bool)
+        )
+        self.grid_checkbox.setToolTip("Show/hide coordinate grid lines")
+        self.grid_checkbox.stateChanged.connect(self.update_plot)
+        self.grid_checkbox.stateChanged.connect(
+            lambda: self.qsettings.setValue("display/show_grid", self.grid_checkbox.isChecked())
+        )
+        row1_layout.addWidget(self.grid_checkbox)
         
         row1_layout.addStretch()
         control_layout.addWidget(row1)
@@ -2980,7 +3454,7 @@ class RadarViewer(QMainWindow):
         self.range_spinner.setValue(150)
         self.range_spinner.setSuffix(" km")
         self.range_spinner.setMaximumWidth(80)
-        self.range_spinner.valueChanged.connect(self.update_plot)
+        self.range_spinner.editingFinished.connect(self.update_plot)
         row2_layout.addWidget(self.range_spinner)
         
         # Max height for RHI plots
@@ -2990,7 +3464,7 @@ class RadarViewer(QMainWindow):
         self.height_spinner.setValue(10)
         self.height_spinner.setSuffix(" km")
         self.height_spinner.setMaximumWidth(80)
-        self.height_spinner.valueChanged.connect(self.update_plot)
+        self.height_spinner.editingFinished.connect(self.update_plot)
         row2_layout.addWidget(self.height_spinner)
         
         # Plot type selection (Fast or Map)
@@ -3114,7 +3588,7 @@ class RadarViewer(QMainWindow):
 
     def update_plot(self):
         """Plot radar or gridded data with handling of sizing and cleanup"""
-        
+    
         # Check what type of data we have and if it's loaded
         if self.data_type == 'radar':
             if not self.radar:
@@ -3129,23 +3603,44 @@ class RadarViewer(QMainWindow):
         else:
             print("No valid data loaded")
             return
-        
+    
         # Check conditions for plotting
         has_current_field = bool(self.current_field)
         has_selected_fields = self.multifield_mode and bool(self.selected_fields)
-        
+    
         if not has_current_field and not has_selected_fields:
             print("No fields available for plotting")
             return
-        
+    
         try:
-            # Properly clear the canvas and create new figure
-            if hasattr(self, 'figure') and self.figure:
+            # ==================== CLEAN CANVAS CLEARING ====================
+            # Close all matplotlib figures first
+            plt.close('all')
+            
+            # Clear the existing figure if it exists
+            if hasattr(self, 'figure') and self.figure is not None:
                 self.figure.clear()
                 plt.close(self.figure)
-            plt.close('all')
+                self.figure = None
+            
+            # Force garbage collection
             gc.collect()
             
+            # Clear the canvas by setting it to white background
+            if hasattr(self, 'canvas') and self.canvas:
+                # Set canvas background to white
+                self.canvas.setStyleSheet("background-color: white;")
+                
+                # If canvas has a figure, clear it
+                if self.canvas.figure is not None:
+                    self.canvas.figure.clear()
+                    plt.close(self.canvas.figure)
+                
+                # Force Qt to repaint
+                self.canvas.update()
+                QApplication.processEvents()
+            
+            # ==================== NOW CREATE NEW PLOT ====================
             # Get settings
             max_range = self.range_spinner.value()
             mask_outside = True
@@ -3170,7 +3665,7 @@ class RadarViewer(QMainWindow):
             print(f"Error in update_plot: {str(e)}")
             import traceback
             traceback.print_exc()
-
+        
     def _plot_radar_data(self, max_range, mask_outside, plot_fast, max_height, 
                         canvas_width_px, canvas_height_px, canvas_dpi, device_ratio):
         """Plot radar data with automated layout"""
@@ -3247,7 +3742,11 @@ class RadarViewer(QMainWindow):
                         plot_fast=plot_fast,
                         max_range=max_range,
                         max_height=max_height,
-                        mask_outside=mask_outside
+                        mask_outside=mask_outside,
+                        show_radials=self.radials_checkbox.isChecked(),
+                        show_range_rings=self.range_rings_checkbox.isChecked(),
+                        range_ring_spacing=self.range_ring_spacing_spin.value(),
+                        show_grid=self.grid_checkbox.isChecked()                  
                     )
                     
                     if self.scan_type == "PPI":
@@ -3331,7 +3830,11 @@ class RadarViewer(QMainWindow):
                 plot_fast=plot_fast,
                 max_range=max_range,
                 max_height=max_height,
-                mask_outside=mask_outside
+                mask_outside=mask_outside,
+                show_radials=self.radials_checkbox.isChecked(),
+                show_range_rings=self.range_rings_checkbox.isChecked(),
+                range_ring_spacing=self.range_ring_spacing_spin.value(),
+                show_grid=self.grid_checkbox.isChecked()   
             )
             
             if self.scan_type == "PPI":
@@ -3375,16 +3878,32 @@ class RadarViewer(QMainWindow):
                     f"Displaying {self.current_field} - RHI Azimuth: {angle:.1f}°"
                 )
                 
-        # Connect and draw
+        # ==================== CONNECT NEW FIGURE TO CANVAS ====================
+        # Store reference to old figure
         old_figure = self.canvas.figure
+        
+        # Set the new figure
         self.canvas.figure = self.figure
         
+        # Clean up old figure AFTER setting new one
         if old_figure is not None and old_figure != self.figure:
-            old_figure.clear()
-            plt.close(old_figure)
+            try:
+                old_figure.clear()
+                plt.close(old_figure)
+                del old_figure  # Explicit deletion
+            except:
+                pass
         
+        # Force garbage collection
+        gc.collect()
+        
+        # Draw new figure with full render
         self.canvas.draw()
         self.canvas.flush_events()
+        
+        # Ensure Qt processes the paint event
+        self.canvas.update()
+        QApplication.processEvents()
 
     def _plot_gridded_data(self, max_range, max_height, canvas_width_px, canvas_height_px, canvas_dpi):
         """Plot gridded data with automated layout"""
@@ -3479,16 +3998,32 @@ class RadarViewer(QMainWindow):
                 f"Displaying {self.current_field} - {self.data_type.upper()} Level: {self.current_sweep}"
             )
         
-        # Connect and draw
+        # ==================== CONNECT NEW FIGURE TO CANVAS ====================
+        # Store reference to old figure
         old_figure = self.canvas.figure
+        
+        # Set the new figure
         self.canvas.figure = self.figure
         
+        # Clean up old figure AFTER setting new one
         if old_figure is not None and old_figure != self.figure:
-            old_figure.clear()
-            plt.close(old_figure)
+            try:
+                old_figure.clear()
+                plt.close(old_figure)
+                del old_figure  # Explicit deletion
+            except:
+                pass
         
+        # Force garbage collection
+        gc.collect()
+        
+        # Draw new figure with full render
         self.canvas.draw()
         self.canvas.flush_events()
+        
+        # Ensure Qt processes the paint event
+        self.canvas.update()
+        QApplication.processEvents()
             
     def load_radar_file(self):
         """Open a file dialog to select a radar or gridded data file"""
@@ -4424,7 +4959,14 @@ class GriddedPlotter:
                 if custom_vmax is not None:
                     vmax = custom_vmax
                 if custom_cmap:
-                    cmap = custom_cmap
+                    # Handle GV colormaps
+                    if custom_cmap in _GV_COLORMAPS:
+                        cmap = _GV_COLORMAPS[custom_cmap]
+                    else:
+                        try:
+                            cmap = custom_cmap
+                        except:
+                            pass  # Use default if custom cmap fails
             
             # Apply discrete colormap if needed
             if Nbins > 0:
@@ -4528,7 +5070,15 @@ class GriddedPlotter:
             if custom_vmax is not None:
                 vmax = custom_vmax
             if custom_cmap:
-                cmap = custom_cmap
+                # Handle GV colormaps
+                if custom_cmap in _GV_COLORMAPS:
+                    cmap = _GV_COLORMAPS[custom_cmap]
+                else:
+                    try:
+                        cmap = custom_cmap
+                    except:
+                        pass  # Use default if custom cmap fails
+
         
         # Select the data at the specified level
         data_var = self.data[field]
@@ -4663,7 +5213,14 @@ class GriddedPlotter:
                 if custom_vmax is not None:
                     vmax = custom_vmax
                 if custom_cmap:
-                    cmap = custom_cmap
+                    # Handle GV colormaps
+                    if custom_cmap in _GV_COLORMAPS:
+                        cmap = _GV_COLORMAPS[custom_cmap]
+                    else:
+                        try:
+                            cmap = custom_cmap
+                        except:
+                            pass  # Use default if custom cmap fails
             
             # Apply discrete colormap if needed
             if Nbins > 0:
@@ -4716,7 +5273,9 @@ class GriddedPlotter:
 class RadarPlotter:
     """Class to handle radar plotting using the existing plotting code with settings support"""
     
-    def __init__(self, radar, scan_type="PPI", plot_fast=True, max_range=150, max_height=10, mask_outside=True):
+    def __init__(self, radar, scan_type="PPI", plot_fast=True, max_range=150, 
+                 max_height=10, mask_outside=True, show_radials=True, 
+                 show_range_rings=True, range_ring_spacing=50, show_grid=True):
         
         self.radar = radar
         self.scan_type = scan_type
@@ -4724,6 +5283,10 @@ class RadarPlotter:
         self.max_range = max_range
         self.max_height = max_height
         self.mask_outside = mask_outside
+        self.show_radials = show_radials
+        self.show_range_rings = show_range_rings
+        self.range_ring_spacing = range_ring_spacing
+        self.show_grid = show_grid                    
     
         # Initialize caches for expensive operations
         self._cache = PlottingCache()
@@ -4744,10 +5307,19 @@ class RadarPlotter:
             if custom_vmax is not None:
                 vmax = custom_vmax
             if custom_cmap:
-                try:
+                # Handle both string names and colormap objects
+                if isinstance(custom_cmap, str):
+                    # It's a string name - check if it's a GV colormap
+                    if custom_cmap in _GV_COLORMAPS:
+                        cmap = _GV_COLORMAPS[custom_cmap]
+                    else:
+                        try:
+                            cmap = plt.get_cmap(custom_cmap)
+                        except:
+                            pass  # Use default if custom cmap fails
+                elif hasattr(custom_cmap, 'name'):
+                    # It's already a colormap object - use it directly
                     cmap = custom_cmap
-                except:
-                    pass  # Use default if custom cmap fails
         
         # Apply discrete colormap if needed (from your original code)
         if Nbins > 0:
@@ -4812,14 +5384,19 @@ class RadarPlotter:
             ax.set_xlim(zoom_xlim)
             ax.set_ylim(zoom_ylim)        
             
-        # Add range rings (matching your original style)
-        for rng in range(50, self.max_range + 50, 50):
-            display.plot_range_ring(rng, ax=ax, col="white", ls="-", lw=0.5)
+        # Add range rings with custom spacing
+        if self.show_range_rings:
+            for rng in range(self.range_ring_spacing, self.max_range + self.range_ring_spacing, 
+                             self.range_ring_spacing):
+                display.plot_range_ring(rng, ax=ax, col="white", ls="-", lw=0.5)
             
         # Add radials for fast plot
-        self._cache.add_radials_fast(ax, self.max_range)
+        if self.show_radials:
+            self._cache.add_radials_fast(ax, self.max_range)
         
-        display.plot_grid_lines(ax=ax, col="white", ls=":")
+        # Add grid lines
+        if self.show_grid:
+            display.plot_grid_lines(ax=ax, col="white", ls=":")
         
         # FIXED: Set square aspect ratio
         ax.set_aspect('equal')
@@ -4845,10 +5422,15 @@ class RadarPlotter:
             if custom_vmax is not None:
                 vmax = custom_vmax
             if custom_cmap:
-                try:
-                    cmap = custom_cmap
-                except:
-                    pass  # Use default if custom cmap fails
+                # Handle GV colormaps
+                if custom_cmap in _GV_COLORMAPS:
+                    cmap = _GV_COLORMAPS[custom_cmap]
+                else:
+                    try:
+                        cmap = custom_cmap
+                    except:
+                        pass  # Use default if custom cmap fails
+
         
         # Apply discrete colormap if needed
         if Nbins > 0:
@@ -4932,22 +5514,26 @@ class RadarPlotter:
         ax.add_feature(cfeature.LAKES.with_scale('50m'), facecolor="#414141", 
                       edgecolor='white', lw=0.25, zorder=0)
         
-        # Add range rings for cartopy plot
-        for rng in range(50, self.max_range + 50, 50):
-            display.plot_range_ring(rng, ax=ax, col="white", ls="-", lw=0.5)
+        # Add range rings with custom spacing
+        if self.show_range_rings:
+            for rng in range(self.range_ring_spacing, self.max_range + self.range_ring_spacing,
+                             self.range_ring_spacing):
+                display.plot_range_ring(rng, ax=ax, col="white", ls="-", lw=0.5)
             
         # ADD RADIALS
-        coord_data = self._cache.get_coordinate_transform(radar_lat, radar_lon, self.max_range)
-        self._cache.add_radials_vectorized(display, radar_lat, radar_lon, self.max_range, coord_data)        
+        if self.show_radials:
+            coord_data = self._cache.get_coordinate_transform(radar_lat, radar_lon, self.max_range)
+            self._cache.add_radials_vectorized(display, radar_lat, radar_lon, self.max_range, coord_data)
             
         # Add cartopy grid lines
-        grid_lines = ax.gridlines(draw_labels=True, linewidth=0.5, color='gray', x_inline=False)
-        grid_lines.top_labels = False
-        grid_lines.right_labels = False
-        grid_lines.xformatter = LONGITUDE_FORMATTER
-        grid_lines.yformatter = LATITUDE_FORMATTER
-        grid_lines.xlabel_style = {'size': 6, 'color': 'black', 'rotation': 0, 'weight': 'bold', 'ha': 'center'}
-        grid_lines.ylabel_style = {'size': 6, 'color': 'black', 'rotation': 90, 'weight': 'bold', 'va': 'bottom', 'ha': 'center'}
+        if self.show_grid:
+            grid_lines = ax.gridlines(draw_labels=True, linewidth=0.5, color='gray', x_inline=False)
+            grid_lines.top_labels = False
+            grid_lines.right_labels = False
+            grid_lines.xformatter = LONGITUDE_FORMATTER
+            grid_lines.yformatter = LATITUDE_FORMATTER
+            grid_lines.xlabel_style = {'size': 6, 'color': 'black', 'rotation': 0, 'weight': 'bold', 'ha': 'center'}
+            grid_lines.ylabel_style = {'size': 6, 'color': 'black', 'rotation': 90, 'weight': 'bold', 'va': 'bottom', 'ha': 'center'}
         
         try:
             ax.set_aspect('equal')
@@ -4985,9 +5571,7 @@ class RadarPlotter:
                            zoom_ylim[0] <= lat <= zoom_ylim[1]):
                         # Annotation is outside zoom area, skip it
                         continue
-                # else: zoom is in x-y km coordinates, can't filter lat/lon annotations
-                #       so show all annotations (cartopy will handle visibility)
-            
+         
             # Plot point
             ax.plot(lon, lat, marker=symbol, markersize=size, 
                    color=color, transform=ccrs.PlateCarree(),
@@ -5020,10 +5604,15 @@ class RadarPlotter:
             if custom_vmax is not None:
                 vmax = custom_vmax
             if custom_cmap:
-                try:
-                    cmap = custom_cmap
-                except:
-                    pass  # Use default if custom cmap fails
+                # Handle GV colormaps
+                if custom_cmap in _GV_COLORMAPS:
+                    cmap = _GV_COLORMAPS[custom_cmap]
+                else:
+                    try:
+                        cmap = custom_cmap
+                    except:
+                        pass  # Use default if custom cmap fails
+
         
         # Apply discrete colormap if needed (from your original code)
         if Nbins > 0:
@@ -5198,7 +5787,6 @@ def main():
     window = RadarViewer()
     window.show()
     sys.exit(app.exec_())
-
 
 if __name__ == "__main__":
     main()
