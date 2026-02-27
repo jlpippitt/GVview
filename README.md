@@ -192,8 +192,8 @@ Access via Annotations button in toolbar:
 *1x3 grid display showing CZ (Corrected Reflectivity [dBZ]), RC (HIDRO Rain Rate [mm/hr]), and RP (PolZR Rain Rate [mm/hr])*
 
 ### Interactive Zoom Tool
-![Zoom Tool](screenshots/zoom_demo.png)
-*Click-and-drag zoom box with real-time preview (left: before zoom, right: after zoom)*
+![Zoom Out](screenshots/zoom_out.png)![Zoom IN](screenshots/zoom_in.png)
+*Click-and-drag zoom box with real-time preview (Top: before zoom, Bottom: after zoom)*
 
 ### NEXRAD Real-Time Download
 ![NEXRAD Download](screenshots/nexrad_download.png)
