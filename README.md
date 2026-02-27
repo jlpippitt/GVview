@@ -35,6 +35,9 @@ A professional, interactive radar data visualization tool built for the NASA GPM
 - **Range Control** - Adjustable maximum range (10-500 km)
 - **Height Control** - Configurable max height for RHI plots (1-25 km)
 
+### 📋 **Metadata**
+- **Data Info Button** - View files Meradata
+
 ### 🎨 **Customization**
 - **Colorbar Settings** - Custom colormaps, min/max values per field
 - **Auto-detection** - Smart range detection for unknown fields using percentiles
@@ -54,13 +57,6 @@ A professional, interactive radar data visualization tool built for the NASA GPM
 - **Site Checker** - Verify site availability and data status
 - **Split-cut Merging** - Automatically combine reflectivity and velocity scans
 - **Comprehensive Site List** - All US, Puerto Rico, Guam, and international sites
-
-### 🔬 **Advanced Features**
-- **HID Colormaps** - Specialized colormaps for hydrometeor identification
-- **Rain Rate Processing** - Special handling for rainfall rate products
-- **Discrete Colorbars** - Custom tick labels for categorical data
-- **Memory Management** - Efficient caching of expensive operations
-- **Multi-threading** - Background data downloads with progress tracking
 
 ---
 
@@ -214,44 +210,6 @@ Access via Annotations button in toolbar:
 ---
 
 *Note: Screenshots are for demonstration purposes. Your actual display may vary based on radar data and platform.*
-
-## Supported Fields
-
-### Dual-Polarization Variables
-- CZ, DZ, DBZH, reflectivity - Reflectivity (dBZ)
-- VR, VEL, velocity - Radial Velocity (m/s)
-- SW, spectrum_width - Spectrum Width (m/s)
-- DR, ZDR, differential_reflectivity - Differential Reflectivity (dB)
-- PH, PHIDP, differential_phase - Differential Phase (deg)
-- KD, KDP, specific_differential_phase - Specific Differential Phase (deg/km)
-- RH, RHOHV, cross_correlation_ratio - Correlation Coefficient
-
-### Derived Products
-- FH, FS - Summer Hydrometeor ID
-- FW, NT - Winter Hydrometeor ID
-- EC - Echo Classification
-- RC - HIDRO Rain Rate (mm/hr)
-- RP - Polarimetric Rain Rate (mm/hr)
-- RA - Attenuation Rain Rate (mm/hr)
-- MW, MI - Water/Ice Mass (g/m³)
-- DM - Median Drop Diameter (mm)
-- NW - Normalized Intercept Parameter
-
-### Auto-Detection for Unknown Fields
-- Automatic analysis of unknown fields
-- Smart colormap selection based on field characteristics
-- Percentile-based range detection
-- Diverging colormaps for velocity-like data
-
-## Supported NEXRAD Sites
-
-### United States
-All 160 NEXRAD WSR-88D sites organized by state
-
-### International
-- Guam: PGUA
-- South Korea: RKSG, RKJK
-- Japan: RODN
 
 ## Troubleshooting
 
