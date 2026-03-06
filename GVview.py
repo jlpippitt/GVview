@@ -1501,9 +1501,9 @@ class AnnotationDialog(QDialog):
 class SettingsDialog(QDialog):
     """Dialog for configuring radar display settings"""
     
-    def __init__(self, parent, radar, settings):
+    def __init__(self, parent, data_obj, settings):
         super().__init__(parent)
-        self.radar = radar
+        self.data_obj = data_obj
         self.settings = settings
         self.parent = parent
         
@@ -1565,11 +1565,30 @@ class SettingsDialog(QDialog):
     
     def populate_field_table(self):
         """Populate the field settings table"""
-        if not self.radar or not hasattr(self.radar, 'fields'):
+        
+        # Detect data type and get fields
+        fields = []
+        data_type = None
+        
+        if hasattr(self.data_obj, 'fields'):
+            # PyART Radar or Grid object
+            fields = list(self.data_obj.fields.keys())
+            data_type = 'pyart'
+        elif hasattr(self.data_obj, 'data_vars'):
+            # ==================== FILTER XARRAY FIELDS ====================
+            # xarray Dataset - filter to only plottable fields
+            fields = get_plottable_fields(self.data_obj, 'xarray')
+            data_type = 'xarray'
+            
+            print(f"Colorbar settings: showing {len(fields)} plottable fields")
+            # ==================== END FILTER ====================
+        else:
+            QMessageBox.warning(self, "Error", "Could not determine data type")
             return
         
-        # Get all fields from radar
-        fields = list(self.radar.fields.keys())
+        if not fields:
+            QMessageBox.warning(self, "No Fields", "No plottable data fields found")
+            return
         
         # Set row count
         self.field_table.setRowCount(len(fields))
@@ -1581,10 +1600,15 @@ class SettingsDialog(QDialog):
             field_item.setFlags(field_item.flags() & ~Qt.ItemIsEditable)  
             self.field_table.setItem(row, 0, field_item)
             
-            # ==================== GET DEFAULT VALUES ====================
-            default_info = get_field_info(self.radar, field)
+            # ==================== GET DEFAULT VALUES BASED ON DATA TYPE ====================
+            if data_type == 'xarray':
+                default_info = get_xarray_field_info(self.data_obj, field)
+            else:  # pyart (radar or grid)
+                default_info = get_field_info(self.data_obj, field)
+            
             default_vmin, default_vmax = default_info[1], default_info[2]
             default_cmap = default_info[3]  # This is the colormap object or name
+            # ==================== END GET DEFAULTS ====================
             
             # Convert colormap to display name
             if hasattr(default_cmap, 'name'):
@@ -1621,7 +1645,7 @@ class SettingsDialog(QDialog):
             cmap_combo.setMaxVisibleItems(15)
             cmap_combo.setSizeAdjustPolicy(QComboBox.AdjustToContents)
             
-            # ✓ CHANGED: Show default colormap name in the "Default" option
+            # Show default colormap name in the "Default" option
             cmap_combo.addItem(f"Default ({display_default_name})", None)
             cmap_combo.insertSeparator(1)
             
@@ -1675,15 +1699,25 @@ class SettingsDialog(QDialog):
                    
             # Reset button
             reset_btn = QPushButton("Reset")
-            reset_btn.clicked.connect(lambda _, f=field, r=row: self.reset_field_row(f, r))
+            reset_btn.clicked.connect(lambda _, f=field, r=row, dt=data_type: self.reset_field_row(f, r, dt))
             self.field_table.setCellWidget(row, 4, reset_btn)
     
-    def reset_field_row(self, field, row):
+    def reset_field_row(self, field, row, data_type=None):
         """Reset a field's settings to defaults"""
         self.settings.reset_field_settings(field)
         
-        # Get default values
-        default_info = get_field_info(self.radar, field)
+        # ==================== GET DEFAULTS BASED ON DATA TYPE ====================
+        # Get default values based on data type
+        if data_type == 'xarray':
+            default_info = get_xarray_field_info(self.data_obj, field)
+        elif hasattr(self.data_obj, 'data_vars'):
+            # Detect if it's xarray
+            default_info = get_xarray_field_info(self.data_obj, field)
+        else:
+            # PyART radar or grid
+            default_info = get_field_info(self.data_obj, field)
+        # ==================== END GET DEFAULTS ====================
+        
         default_vmin, default_vmax = default_info[1], default_info[2]
         
         # Update the widgets
@@ -1695,7 +1729,7 @@ class SettingsDialog(QDialog):
         
         cmap_combo = self.field_table.cellWidget(row, 3)
         cmap_combo.setCurrentIndex(0)  # Default
-    
+        
     def accept(self):
         """OK button - save and close"""
         self.settings.save_settings()  
@@ -1883,9 +1917,7 @@ def get_field_info(radar, field):
                 # Round to nice numbers
                 vmin = np.floor(vmin * 10) / 10  # Round down to 0.1
                 vmax = np.ceil(vmax * 10) / 10   # Round up to 0.1
-                
-                #print(f"  Auto-detected range: [{vmin:.1f}, {vmax:.1f}] {units}")
-                
+                                
                 # ==================== SMART COLORMAP SELECTION ====================
                 # Choose colormap based on data characteristics
                 if vmin < 0 and vmax > 0:
@@ -2019,11 +2051,11 @@ def get_xarray_field_info(ds, field):
         vmax = data_max + 0.1 * data_range
         
         # Default colormap based on field name
-        if any(x in field.lower() for x in ['refl', 'dbz', 'zh']):
+        if any(x in field.lower() for x in ['refl', 'dbz', 'zh', 'CZ']):
             cmap = check_cm('NWSRef')
-        elif any(x in field.lower() for x in ['vel', 'vr']):
+        elif any(x in field.lower() for x in ['vel', 'vr', 'VR']):
             cmap = check_cm('NWSVel')
-        elif any(x in field.lower() for x in ['zdr', 'dr']):
+        elif any(x in field.lower() for x in ['zdr', 'dr', 'DR']):
             cmap = check_cm('HomeyerRainbow')
         else:
             cmap = 'viridis'
@@ -2033,6 +2065,63 @@ def get_xarray_field_info(ds, field):
         return units, vmin, vmax, cmap, title, 0
     
     return 'Unknown', -10, 70, 'viridis', field, 0
+    
+def get_plottable_fields(data, data_type):
+    """Filter data variables to only return plottable fields (exclude metadata)"""
+    
+    if data_type == 'xarray':
+        all_vars = list(data.data_vars.keys())
+        
+        # Find the main data dimensions (exclude single values)
+        dims = data.dims
+        main_dims = [d for d, size in dims.items() if size > 1]
+        
+        # Determine what dimensions we expect for plottable data
+        # For TIME-HEIGHT: should have 'time' and 'range'/'height'
+        # For RHI: should have 'z' and 'x' (and maybe 'sweep')
+        # For PPI: should have 'x' and 'y' (and maybe 'z'/'level')
+        
+        plottable = []
+        
+        for var in all_vars:
+            var_dims = data[var].dims
+            var_shape = data[var].shape
+            
+            # Skip single-value variables (metadata)
+            if len(var_dims) == 1 and var_shape[0] == 1:
+                continue
+            
+            # Skip 1D coordinate arrays
+            if len(var_dims) == 1:
+                continue
+            
+            # For 2D or 3D data, check if it has the main dimensions
+            if len(var_dims) >= 2:
+                # Check if variable has at least 2 of the main dimensions
+                matching_dims = [d for d in var_dims if d in main_dims]
+                
+                # If it has 2 or more main dimensions, it's plottable
+                if len(matching_dims) >= 2:
+                    plottable.append(var)
+        
+        return plottable
+    
+    elif data_type == 'grid':
+        # PyART Grid - all fields in .fields are plottable
+        return list(data.fields.keys())
+    
+    elif data_type == 'radar':
+        # PyART Radar - all fields in .fields are plottable
+        return list(data.fields.keys())
+    
+    else:
+        # Unknown type - return all
+        if hasattr(data, 'fields'):
+            return list(data.fields.keys())
+        elif hasattr(data, 'data_vars'):
+            return list(data.data_vars.keys())
+        else:
+            return []
     
 def create_manual_subplots(fig, num_fields, canvas_dpi, layout_manager):
     """Create manually positioned subplots using LayoutManager"""
@@ -2309,6 +2398,70 @@ def merge_split_cuts(radar, time_gap=120):
                 radar_new.add_field(field_name, radar_vr.fields[field_name], replace_existing=True)
 
     return radar_new
+    
+def detect_gridded_scan_type(data, data_type):
+    """Detect if gridded data is PPI, RHI, or Time-Height based on dimensions/coordinates"""
+    
+    if data_type == 'xarray':
+        # Check dimensions
+        dims = list(data.dims.keys())
+        
+        # ==================== TIME-HEIGHT (MRR, Vertical Profiler) ====================
+        # Has time and range/height dimensions
+        if 'time' in dims and ('range' in dims or 'height' in dims):
+            # Check if it's a single-point profiler (not scanning)
+            has_single_location = False
+            for coord in ['latitude', 'longitude', 'lat', 'lon']:
+                if coord in data.coords or coord in data.data_vars:
+                    coord_data = data.coords[coord] if coord in data.coords else data[coord]
+                    # Check if it's a single value
+                    if coord_data.size == 1:
+                        has_single_location = True
+                        break
+            
+            if has_single_location:
+                return "TIME-HEIGHT"
+        
+        # ==================== RHI (Range-Height Indicator) ====================
+        # Has z (height) and x (range) dimensions but not y
+        if 'z' in dims and 'x' in dims and 'y' not in dims:
+            return "RHI"
+        
+        # RHI: or height and range naming (with sweep dimension)
+        if 'height' in dims and 'range' in dims and 'sweep' in dims:
+            return "RHI"
+        
+        # ==================== PPI (Plan Position Indicator) ====================
+        # Has x and y (horizontal) dimensions
+        if 'x' in dims and 'y' in dims:
+            return "PPI"
+        
+        # PPI: or lat/lon
+        if ('lat' in dims or 'latitude' in dims) and ('lon' in dims or 'longitude' in dims):
+            return "PPI"
+        
+        # Check global attributes for hints
+        if 'source' in data.attrs:
+            source = str(data.attrs['source']).lower()
+            if 'mrr' in source or 'micro rain radar' in source:
+                return "TIME-HEIGHT"
+        
+        if 'description' in data.attrs:
+            desc = str(data.attrs['description']).lower()
+            if 'rhi' in desc:
+                return "RHI"
+            if 'ppi' in desc:
+                return "PPI"
+    
+    elif data_type == 'grid':
+        # PyART Grid - check if it has RHI structure
+        if hasattr(data, 'nz') and hasattr(data, 'nx') and not hasattr(data, 'ny'):
+            return "RHI"
+        # Typical PyART grid is PPI
+        return "PPI"
+    
+    # Default to PPI
+    return "PPI"
 
 class RadarViewer(QMainWindow):
     """Improved RadarViewer with settings functionality"""
@@ -2394,7 +2547,7 @@ class RadarViewer(QMainWindow):
         
     def show_layout_tuning(self):
         """Show dialog to manually tune layout parameters"""
-        
+
         if not hasattr(self, '_last_layout_mgr') or not self._last_layout_mgr:
                 QMessageBox.warning(self, "No Layout", "Please plot data first.")
                 return
@@ -2697,11 +2850,14 @@ class RadarViewer(QMainWindow):
     
     def show_settings(self):
         """Show the settings dialog"""
-        if not self.radar:
-            QMessageBox.warning(self, "No Data", "Please load radar data first.")
+        if not self.radar and not self.gridded_data:
+            QMessageBox.warning(self, "No Data", "Please load data first.")
             return
+    
+        # Pass the appropriate data object to the dialog
+        data_obj = self.radar if self.radar else self.gridded_data
         
-        dialog = SettingsDialog(self, self.radar, self.settings)
+        dialog = SettingsDialog(self, data_obj, self.settings)
         if dialog.exec_() == QDialog.Accepted:
             self.update_plot()
             
@@ -3972,15 +4128,16 @@ class RadarViewer(QMainWindow):
             max_height=max_height
         )
         
-        if self.scan_type == "PPI":
-            plotter.plot_grid_ppi(self.current_field, self.current_sweep, ax, self.settings)
-        else:
+        if self.scan_type == "RHI":
             plotter.plot_grid_rhi(self.current_field, self.current_sweep, ax, self.settings)
+        else:
+            plotter.plot_grid_ppi(self.current_field, self.current_sweep, ax, self.settings)
         
-        try:
-            ax.set_aspect('equal')
-        except:
-            pass
+        if self.scan_type == "PPI":
+            try:
+                ax.set_aspect('equal')
+            except:
+                pass
         
         # Update status
         if self.data_type == 'grid' and hasattr(self.gridded_data, 'z'):
@@ -3998,7 +4155,6 @@ class RadarViewer(QMainWindow):
                 f"Displaying {self.current_field} - {self.data_type.upper()} Level: {self.current_sweep}"
             )
         
-        # ==================== CONNECT NEW FIGURE TO CANVAS ====================
         # Store reference to old figure
         old_figure = self.canvas.figure
         
@@ -4164,6 +4320,15 @@ class RadarViewer(QMainWindow):
                         self.statusBar().showMessage(f"Loaded as xarray Dataset")
                     except Exception as e:
                         self.statusBar().showMessage(f"Failed to load with xarray: {e}")
+            
+                if data_type in ['grid', 'xarray']:
+                    detected_scan_type = detect_gridded_scan_type(loaded_data, data_type)
+                    self.scan_type = detected_scan_type
+                    
+                    if detected_scan_type == "TIME-HEIGHT":
+                        # For profilers, "max range" doesn't make sense, but max height does
+                        self.range_spinner.setEnabled(False)  # Disable range control
+                        self.range_spinner.setToolTip("Range control disabled for profiler data")
             
                 if loaded_data is None:
                     self.statusBar().showMessage(f"Could not load file: {file_path}")
@@ -4686,18 +4851,17 @@ class RadarViewer(QMainWindow):
                     break
         
         elif self.data_type in ['grid', 'xarray'] and self.gridded_data:
-            # Gridded data
-            if self.data_type == 'grid':
-                # PyART Grid
-                for field in self.gridded_data.fields.keys():
-                    self.field_combo.addItem(field)
-            else:
-                # xarray Dataset
-                for field in self.gridded_data.data_vars:
-                    self.field_combo.addItem(field)
+            # ==================== FILTER GRIDDED DATA FIELDS ====================
+            # Get only plottable fields (exclude metadata)
+            plottable_fields = get_plottable_fields(self.gridded_data, self.data_type)
+                        
+            for field in plottable_fields:
+                self.field_combo.addItem(field)
+            # ==================== END FILTER ====================
             
             # Set default field for gridded data
-            default_fields = ['reflectivity', 'DBZ', 'REFL', 'dbz', 'refl']
+            default_fields = ['reflectivity', 'reflectivity_factor', 'DBZ', 'REFL', 'dbz', 'refl', 
+                             'signal_to_noise_ratio']
             for field in default_fields:
                 index = self.field_combo.findText(field)
                 if index >= 0:
@@ -4731,7 +4895,36 @@ class RadarViewer(QMainWindow):
                 self.sweep_combo.addItem(f"Level {i}: {height:.1f} km")
         
         elif self.data_type == 'xarray' and self.gridded_data:
-            # xarray Dataset - find vertical dimension
+            # ==================== XARRAY DATASET ====================
+            
+            # Check if this is TIME-HEIGHT profiler data
+            if self.scan_type == "TIME-HEIGHT":
+                # For time-height data, "sweeps" are time indices
+                # Just show a single entry since we plot the entire time series
+                self.sweep_combo.addItem("Full Time Series")
+                self.current_sweep = 0
+                return
+            
+            # Check if this is RHI data with sweep dimension
+            if self.scan_type == "RHI" and 'sweep' in self.gridded_data.dims:
+                # RHI with multiple sweeps (azimuths)
+                n_sweeps = self.gridded_data.sizes['sweep']
+                for i in range(n_sweeps):
+                    if 'sweep' in self.gridded_data.coords:
+                        try:
+                            sweep_val = float(self.gridded_data.coords['sweep'][i].values)
+                            self.sweep_combo.addItem(f"Azimuth {i}: {sweep_val:.1f}°")
+                        except:
+                            self.sweep_combo.addItem(f"Azimuth {i}")
+                    else:
+                        self.sweep_combo.addItem(f"Azimuth {i}")
+                
+                # ==================== EARLY RETURN - Don't continue to vertical dims ====================
+                self.current_sweep = 0
+                return
+            
+            # ==================== NOT RHI - Handle as vertical levels ====================
+            # Find vertical dimension
             vertical_dims = ['z', 'level', 'height', 'altitude', 'lev']
             vertical_dim = None
             
@@ -4741,24 +4934,39 @@ class RadarViewer(QMainWindow):
                     break
             
             if vertical_dim:
+                # Has a vertical dimension
                 n_levels = self.gridded_data.sizes[vertical_dim]
                 for i in range(n_levels):
-                    if dim in self.gridded_data.coords:
-                        coord_val = float(self.gridded_data.coords[dim][i].values)
-                        self.sweep_combo.addItem(f"Level {i}: {coord_val:.1f}")
+                    if vertical_dim in self.gridded_data.coords:
+                        try:
+                            coord_val = float(self.gridded_data.coords[vertical_dim][i].values)
+                            self.sweep_combo.addItem(f"Level {i}: {coord_val:.1f}")
+                        except:
+                            self.sweep_combo.addItem(f"Level {i}")
                     else:
                         self.sweep_combo.addItem(f"Level {i}")
             else:
-                # No clear vertical dimension, just use indices
+                # No clear vertical dimension, try to find any 3D structure
                 if self.gridded_data.data_vars:
                     first_var = list(self.gridded_data.data_vars.keys())[0]
                     var_dims = self.gridded_data[first_var].dims
+                    
                     if len(var_dims) > 2:
-                        non_spatial = [d for d in var_dims if d not in ['x', 'y', 'lon', 'lat']]
+                        # Find the non-spatial dimension
+                        non_spatial = [d for d in var_dims if d not in ['x', 'y', 'lon', 'lat', 'longitude', 'latitude']]
                         if non_spatial:
                             dim_size = self.gridded_data.sizes[non_spatial[0]]
                             for i in range(dim_size):
                                 self.sweep_combo.addItem(f"Index {i}")
+                        else:
+                            # Only 2D data
+                            self.sweep_combo.addItem("Level 0")
+                    else:
+                        # 2D data only
+                        self.sweep_combo.addItem("Level 0")
+                else:
+                    # No data variables found
+                    self.sweep_combo.addItem("Level 0")
         
         self.current_sweep = 0
     
@@ -4842,27 +5050,98 @@ class RadarViewer(QMainWindow):
         
     def save_plot(self):
         """Save the current plot as an image file"""
-        if not self.radar:
-            self.statusBar().showMessage("No radar data loaded")
+        
+        # Check if any data is loaded
+        if not self.radar and not self.gridded_data:
+            self.statusBar().showMessage("No data loaded")
             return
+        
+        # ==================== SMART DEFAULT FILENAME ====================
+        # Generate a descriptive default filename
+        default_name = "plot.png"
+        
+        try:
+            if self.radar:
+                # Radar data - use site and field name
+                site = "UNKNOWN"
+                if 'instrument_name' in self.radar.metadata:
+                    site = str(self.radar.metadata['instrument_name'])
+                    if isinstance(site, bytes):
+                        site = site.decode()
+                
+                # Get date/time
+                try:
+                    radar_time = pyart.util.datetime_from_radar(self.radar)
+                    time_str = radar_time.strftime('%Y%m%d_%H%M%S')
+                except:
+                    time_str = "unknown_time"
+                
+                # Build filename
+                field = self.current_field if self.current_field else "field"
+                scan = self.scan_type
+                default_name = f"{site}_{field}_{scan}_{time_str}.png"
+                
+            elif self.gridded_data:
+                # Gridded data - use scan type and field
+                field = self.current_field if self.current_field else "field"
+                scan = self.scan_type
+                
+                # Try to get time from data
+                time_str = "unknown_time"
+                if self.data_type == 'xarray':
+                    if 'time' in self.gridded_data.coords:
+                        try:
+                            import pandas as pd
+                            first_time = pd.Timestamp(self.gridded_data.coords['time'].values[0])
+                            time_str = first_time.strftime('%Y%m%d_%H%M%S')
+                        except:
+                            pass
+                    
+                    # Try to get location info
+                    location = "unknown"
+                    try:
+                        if 'latitude' in self.gridded_data.data_vars or 'latitude' in self.gridded_data.coords:
+                            lat = float(self.gridded_data['latitude'].values)
+                            lon = float(self.gridded_data['longitude'].values)
+                            location = f"{lat:.2f}N_{lon:.2f}E"
+                    except:
+                        pass
+                    
+                    default_name = f"{scan}_{field}_{location}_{time_str}.png"
+                else:
+                    default_name = f"{scan}_{field}_{time_str}.png"
             
+            # Clean up filename (remove spaces, special chars)
+            default_name = default_name.replace(' ', '_').replace('/', '_').replace(':', '_')
+            
+        except Exception as e:
+            print(f"Error generating filename: {e}")
+            default_name = "plot.png"
+        # ==================== END SMART FILENAME ====================
+        
         options = QFileDialog.Options()
         file_path, _ = QFileDialog.getSaveFileName(
-            self, "Save Plot", "", 
-            "PNG Files (*.png);;All Files (*)", 
+            self, "Save Plot", default_name,  # ← Use smart default
+            "PNG Files (*.png);;PDF Files (*.pdf);;JPEG Files (*.jpg);;All Files (*)", 
             options=options
         )
         
         if file_path:
             try:
-                if not file_path.endswith('.png'):
+                # Auto-detect format from extension
+                if not any(file_path.endswith(ext) for ext in ['.png', '.pdf', '.jpg', '.jpeg']):
                     file_path += '.png'
-                    
-                self.figure.savefig(file_path, dpi=150, bbox_inches='tight')
+                
+                # Save with high quality
+                self.figure.savefig(file_path, dpi=300, bbox_inches='tight', 
+                                   facecolor='white', edgecolor='none')
                 self.statusBar().showMessage(f"Plot saved to {file_path}")
             except Exception as e:
                 self.statusBar().showMessage(f"Error saving plot: {str(e)}")
-
+                print(f"Save error details: {e}")
+                import traceback
+                traceback.print_exc()
+            
     def check_nexrad_site(self):
         """Check if a NEXRAD site has current data"""
         # Extract the 4-letter site code from the combo box data
@@ -4933,7 +5212,7 @@ class RadarViewer(QMainWindow):
             self.statusBar().showMessage("Site check failed")
             
 class GriddedPlotter:
-    """Class to handle gridded data plotting (PyART Grids and xarray)"""
+    """Class to handle gridded data plotting (PyART Grids and xarray) with RHI support"""
     
     def __init__(self, data, data_type, max_range=150, max_height=10):
         self.data = data
@@ -4943,7 +5222,22 @@ class GriddedPlotter:
         self._cache = PlottingCache()
     
     def plot_grid_ppi(self, field, level, ax, settings=None):
-        """Plot gridded data at a specific level with map background"""
+        """Plot gridded data at a specific level with map background or RHI if applicable"""
+        
+        # ==================== DETECT SCAN TYPE ====================
+        scan_type = detect_gridded_scan_type(self.data, self.data_type)
+        
+        if scan_type == "RHI":
+            # This is RHI data, redirect to RHI plotting
+            self.plot_xarray_rhi(field, level, ax, settings)
+            return
+        # ==================== TIME-HEIGHT ROUTING ====================
+        elif scan_type == "TIME-HEIGHT":
+            # This is MRR/profiler data, redirect to time-height plotting
+            self.plot_time_height(field, level, ax, settings)
+            return    
+            
+        # ==================== PPI PLOTTING ====================
         if self.data_type == 'grid':
             # PyART Grid object
             units, vmin, vmax, cmap, _, Nbins = get_grid_field_info(self.data, field)
@@ -4959,14 +5253,13 @@ class GriddedPlotter:
                 if custom_vmax is not None:
                     vmax = custom_vmax
                 if custom_cmap:
-                    # Handle GV colormaps
                     if custom_cmap in _GV_COLORMAPS:
                         cmap = _GV_COLORMAPS[custom_cmap]
                     else:
                         try:
                             cmap = custom_cmap
                         except:
-                            pass  # Use default if custom cmap fails
+                            pass
             
             # Apply discrete colormap if needed
             if Nbins > 0:
@@ -4984,7 +5277,6 @@ class GriddedPlotter:
             origin_lon = self.data.origin_longitude['data'][0]
             
             # Calculate lat/lon extent
-            # Approximate conversion (meters to degrees)
             meters_to_lat = 1.0 / 111177.0
             meters_to_lon = 1.0 / (111177.0 * np.cos(np.radians(origin_lat)))
             
@@ -5008,7 +5300,6 @@ class GriddedPlotter:
                           transform=ccrs.PlateCarree(),
                           vmin=vmin, vmax=vmax)
             
-            # FIXED: Set the map extent to match the data
             ax.set_extent([min_lon, max_lon, min_lat, max_lat], crs=ccrs.PlateCarree())
             
             # Add map features
@@ -5020,7 +5311,6 @@ class GriddedPlotter:
                 ax.add_feature(cfeature.LAKES.with_scale('50m'), facecolor="#414141", 
                               edgecolor='white', linewidth=0.25, zorder=0)
                 
-                # Try to add counties if available
                 try:
                     COUNTIES, STATES = self._cache.get_counties_states()
                     if COUNTIES:
@@ -5028,7 +5318,6 @@ class GriddedPlotter:
                 except:
                     pass
                 
-                # Add gridlines
                 gl = ax.gridlines(draw_labels=True, linewidth=0.5, color='gray', 
                                  alpha=0.5, linestyle='--')
                 gl.top_labels = False
@@ -5041,21 +5330,21 @@ class GriddedPlotter:
             
             # Add colorbar
             cb = plt.colorbar(im, ax=ax, label=units, pad=0.02)
-            
-            # Set title
             ax.set_title(title, fontsize=10, fontweight='bold')
             
         elif self.data_type == 'xarray':
-            # xarray Dataset
+            # xarray Dataset - PPI
             self.plot_xarray_ppi(field, level, ax, settings)
     
     def plot_xarray_ppi(self, field, level, ax, settings=None):
-        """Plot xarray data at a specific level with map background"""
+        """Plot xarray PPI data at a specific level with map background"""
+                
         if field not in self.data.data_vars:
+            print(f"   ❌ Field '{field}' not found in data vars!")
             ax.text(0.5, 0.5, f'Field {field} not found', 
                    transform=ax.transAxes, ha='center', va='center')
             return
-        
+                
         # Get field info
         units, vmin, vmax, cmap, title, _ = get_xarray_field_info(self.data, field)
         
@@ -5070,16 +5359,14 @@ class GriddedPlotter:
             if custom_vmax is not None:
                 vmax = custom_vmax
             if custom_cmap:
-                # Handle GV colormaps
                 if custom_cmap in _GV_COLORMAPS:
                     cmap = _GV_COLORMAPS[custom_cmap]
                 else:
                     try:
                         cmap = custom_cmap
                     except:
-                        pass  # Use default if custom cmap fails
-
-        
+                        pass
+    
         # Select the data at the specified level
         data_var = self.data[field]
         
@@ -5103,6 +5390,22 @@ class GriddedPlotter:
             else:
                 plot_data = data_var
         
+        # If plot_data still has more than 2 dimensions, squeeze or select first index
+        while len(plot_data.shape) > 2:
+            # Find the dimension with size 1 and squeeze it, or take first index
+            squeezed = False
+            for dim in plot_data.dims:
+                if plot_data.sizes[dim] == 1:
+                    plot_data = plot_data.squeeze(dim)
+                    squeezed = True
+                    break
+            
+            if not squeezed:
+                # If no dimension has size 1, take first index of first dimension
+                first_dim = plot_data.dims[0]
+                plot_data = plot_data.isel({first_dim: 0})
+                print(f"   Selected first index of: {first_dim}")
+        
         # Check if we have lat/lon coordinates
         has_latlon = False
         lon_name = None
@@ -5119,12 +5422,11 @@ class GriddedPlotter:
                 break
         
         has_latlon = (lon_name is not None and lat_name is not None)
-        
+                
         # Create the plot
         try:
             if has_latlon and hasattr(ax, 'projection'):
-                # We have geographic coordinates and a projection axis
-                # Get coordinate arrays
+                # Geographic coordinates with projection
                 if lon_name in plot_data.coords:
                     lons = plot_data.coords[lon_name].values
                     lats = plot_data.coords[lat_name].values
@@ -5132,42 +5434,65 @@ class GriddedPlotter:
                     lons = self.data.coords[lon_name].values
                     lats = self.data.coords[lat_name].values
                 
-                # Create extent
+                # Check if coordinates are in meters instead of degrees
+                if lons.max() > 360 or lons.min() < -180 or abs(lons.max()) > 10000:
+                    
+                    # Try to find actual lat/lon if they exist as variables
+                    if 'latitude' in self.data.data_vars and 'longitude' in self.data.data_vars:
+                        actual_lats = self.data['latitude'].values
+                        actual_lons = self.data['longitude'].values
+                        
+                        if actual_lats.size > 1:
+                            lats = actual_lats
+                            lons = actual_lons
+                
                 extent = [lons.min(), lons.max(), lats.min(), lats.max()]
                 
-                # Plot with imshow
-                im = ax.imshow(plot_data.values, origin='lower', cmap=cmap,
-                              extent=extent,
-                              transform=ccrs.PlateCarree(),
-                              vmin=vmin, vmax=vmax, zorder=1)
+                # Get data values and mask fill values
+                data_vals = plot_data.values
+                
+                # Mask common fill values
+                data_vals = np.ma.masked_where(data_vals < -30000, data_vals)
+                data_vals = np.ma.masked_invalid(data_vals)  # Also mask NaN/Inf
+                
+                # For 2D lat/lon arrays (like your 801x801), use pcolormesh instead of imshow
+                if len(lons.shape) == 2 and len(lats.shape) == 2:
+                    im = ax.pcolormesh(lons, lats, data_vals,
+                                      transform=ccrs.PlateCarree(),
+                                      cmap=cmap, vmin=vmin, vmax=vmax,
+                                      shading='auto', zorder=5)
+                else:
+                    im = ax.imshow(data_vals, origin='lower', cmap=cmap,
+                                  extent=extent,
+                                  transform=ccrs.PlateCarree(),
+                                  vmin=vmin, vmax=vmax, zorder=5)
                               
-                ax.set_extent(extent, crs=ccrs.PlateCarree())              
+                ax.set_extent(extent, crs=ccrs.PlateCarree())
                 
                 # Add map features
                 try:
-                    ax.coastlines(resolution='50m', linewidth=0.5, color='white', zorder=2)
-                    ax.add_feature(cfeature.BORDERS, linewidth=0.5, edgecolor='white', zorder=2)
-                    ax.add_feature(cfeature.STATES, linewidth=0.3, edgecolor='white', zorder=2)
-                    ax.add_feature(cfeature.OCEAN.with_scale('50m'), facecolor="#414141", zorder=-2)
+                    ax.coastlines(resolution='50m', linewidth=0.5, color='white', zorder=10)
+                    ax.add_feature(cfeature.BORDERS, linewidth=0.5, edgecolor='white', zorder=10)
+                    ax.add_feature(cfeature.STATES, linewidth=0.3, edgecolor='white', zorder=10)
+                    ax.add_feature(cfeature.OCEAN.with_scale('50m'), facecolor="#414141", zorder=0)
                     ax.add_feature(cfeature.LAKES.with_scale('50m'), facecolor="#414141", 
-                                  edgecolor='white', linewidth=0.25, zorder=-1)
+                                  edgecolor='white', linewidth=0.25, zorder=1)
                     
-                    # Add gridlines
                     gl = ax.gridlines(draw_labels=True, linewidth=0.5, color='gray', 
-                                     alpha=0.5, linestyle='--', zorder=3)
+                                     alpha=0.5, linestyle='--', zorder=15)
                     gl.top_labels = False
                     gl.right_labels = False
                     gl.xformatter = LONGITUDE_FORMATTER
                     gl.yformatter = LATITUDE_FORMATTER
                     
                 except Exception as e:
-                    print(f"Could not add map features: {e}")
+                    print(f"   Could not add map features: {e}")
                 
                 # Add colorbar
                 cb = plt.colorbar(im, ax=ax, label=units, pad=0.02)
                 
             else:
-                # No geographic coordinates or no projection - use xarray's built-in plotting
+                # No geographic coordinates - use xarray's built-in plotting
                 if len(plot_data.dims) == 2:
                     im = plot_data.plot.imshow(
                         ax=ax, 
@@ -5190,7 +5515,150 @@ class GriddedPlotter:
             ax.set_title(f'{title} - Level {level}', fontsize=10, fontweight='bold')
             
         except Exception as e:
-            print(f"Error plotting xarray data: {e}")
+            print(f"   ❌ ERROR plotting xarray data: {e}")
+            import traceback
+            traceback.print_exc()
+            ax.text(0.5, 0.5, f'Error plotting {field}\n{str(e)}', 
+                   transform=ax.transAxes, ha='center', va='center')    
+                   
+    def plot_xarray_rhi(self, field, sweep_index, ax, settings=None):
+        """Plot xarray RHI data (height vs range)"""
+        
+        if field not in self.data.data_vars:
+            ax.text(0.5, 0.5, f'Field {field} not found', 
+                   transform=ax.transAxes, ha='center', va='center')
+            return
+        
+        # Get field info
+        units, vmin, vmax, cmap, title, _ = get_xarray_field_info(self.data, field)
+        
+        # Apply custom settings if available
+        if settings:
+            custom_vmin = settings.get_field_setting(field, 'vmin')
+            custom_vmax = settings.get_field_setting(field, 'vmax')
+            custom_cmap = settings.get_field_setting(field, 'cmap')
+            
+            if custom_vmin is not None:
+                vmin = custom_vmin
+            if custom_vmax is not None:
+                vmax = custom_vmax
+            if custom_cmap:
+                if custom_cmap in _GV_COLORMAPS:
+                    cmap = _GV_COLORMAPS[custom_cmap]
+                else:
+                    try:
+                        cmap = custom_cmap
+                    except:
+                        pass
+        
+        # Get the data variable
+        data_var = self.data[field]
+        
+        # Select the sweep
+        if 'sweep' in data_var.dims:
+            if sweep_index < data_var.sizes['sweep']:
+                plot_data = data_var.isel(sweep=sweep_index)
+            else:
+                plot_data = data_var.isel(sweep=0)
+        else:
+            plot_data = data_var
+        
+        # Get coordinates - try different naming conventions
+        z_coord = None
+        x_coord = None
+        
+        for z_name in ['z', 'height', 'altitude', 'Z', 'HEIGHT']:
+            if z_name in plot_data.coords:
+                z_coord = plot_data.coords[z_name]
+                break
+            elif z_name in self.data.coords:
+                z_coord = self.data.coords[z_name]
+                break
+        
+        for x_name in ['x', 'range', 'distance', 'X', 'RANGE']:
+            if x_name in plot_data.coords:
+                x_coord = plot_data.coords[x_name]
+                break
+            elif x_name in self.data.coords:
+                x_coord = self.data.coords[x_name]
+                break
+        
+        if z_coord is None or x_coord is None:
+            ax.text(0.5, 0.5, f'Could not find z/x coordinates for RHI\nDims: {list(plot_data.dims)}\nCoords: {list(plot_data.coords)}', 
+                   transform=ax.transAxes, ha='center', va='center', fontsize=8)
+            return
+        
+        # Convert to km if needed
+        z_vals = z_coord.values
+        x_vals = x_coord.values
+        
+        # Check if values are in meters (typically > 100) and convert to km
+        if z_vals.max() > 100:  # Likely in meters
+            z_vals = z_vals / 1000.0
+            z_label = 'Height (km)'
+        else:
+            z_label = 'Height (km)'
+        
+        if x_vals.max() > 100:  # Likely in meters
+            x_vals = x_vals / 1000.0
+            x_label = 'Range (km)'
+        else:
+            x_label = 'Range (km)'
+        
+        # Create the plot
+        try:
+            # Get data values
+            data_vals = plot_data.values
+            
+            # Handle different dimension orders
+            if data_vals.shape[0] == len(z_vals) and data_vals.shape[1] == len(x_vals):
+                # Data is (z, x) - correct orientation
+                plot_vals = data_vals
+            elif data_vals.shape[0] == len(x_vals) and data_vals.shape[1] == len(z_vals):
+                # Data is (x, z) - transpose needed
+                plot_vals = data_vals.T
+            else:
+                # Shape mismatch - try to plot anyway
+                print(f"Warning: Data shape {data_vals.shape} doesn't match coords z={len(z_vals)}, x={len(x_vals)}")
+                plot_vals = data_vals
+            
+            # Use pcolormesh for better control
+            im = ax.pcolormesh(x_vals, z_vals, plot_vals,
+                              cmap=cmap, vmin=vmin, vmax=vmax,
+                              shading='auto')
+            
+            # Set labels
+            ax.set_xlabel(x_label, fontsize=10)
+            ax.set_ylabel(z_label, fontsize=10)
+            
+            # Set limits
+            ax.set_xlim([0, min(x_vals.max(), self.max_range)])
+            ax.set_ylim([0, min(z_vals.max(), self.max_height)])
+            
+            # Add colorbar
+            cb = plt.colorbar(im, ax=ax, label=units, pad=0.02)
+            
+            # Add title
+            sweep_info = f"Sweep {sweep_index}" if 'sweep' in data_var.dims else ""
+            
+            # Try to get azimuth info if available
+            if 'sweep' in self.data.coords and sweep_index < len(self.data.coords['sweep']):
+                try:
+                    sweep_val = float(self.data.coords['sweep'][sweep_index].values)
+                    sweep_info = f"Azimuth: {sweep_val:.1f}°"
+                except:
+                    pass
+            
+            ax.set_title(f'{title} {sweep_info}', fontsize=10, fontweight='bold')
+            
+            # Set background
+            ax.set_facecolor('black')
+            
+            # Add grid
+            ax.grid(True, color='white', linestyle=':', linewidth=0.5, alpha=0.5)
+            
+        except Exception as e:
+            print(f"Error plotting xarray RHI: {e}")
             import traceback
             traceback.print_exc()
             ax.text(0.5, 0.5, f'Error plotting {field}\n{str(e)}', 
@@ -5198,11 +5666,19 @@ class GriddedPlotter:
     
     def plot_grid_rhi(self, field, azimuth_index, ax, settings=None):
         """Plot RHI-like cross-section for gridded data"""
+        
+        # Check if this is xarray RHI data
+        if self.data_type == 'xarray':
+            scan_type = detect_gridded_scan_type(self.data, self.data_type)
+            if scan_type == "RHI":
+                # Use the specialized xarray RHI method
+                self.plot_xarray_rhi(field, azimuth_index, ax, settings)
+                return
+        
+        # PyART Grid cross-section (existing code)
         if self.data_type == 'grid':
-            # For PyART grids, we can create cross-sections
             units, vmin, vmax, cmap, _, Nbins = get_grid_field_info(self.data, field)
             
-            # Apply custom settings if available
             if settings:
                 custom_vmin = settings.get_field_setting(field, 'vmin')
                 custom_vmax = settings.get_field_setting(field, 'vmax')
@@ -5213,31 +5689,24 @@ class GriddedPlotter:
                 if custom_vmax is not None:
                     vmax = custom_vmax
                 if custom_cmap:
-                    # Handle GV colormaps
                     if custom_cmap in _GV_COLORMAPS:
                         cmap = _GV_COLORMAPS[custom_cmap]
                     else:
                         try:
                             cmap = custom_cmap
                         except:
-                            pass  # Use default if custom cmap fails
+                            pass
             
-            # Apply discrete colormap if needed
             if Nbins > 0:
                 cmap = discrete_cmap(Nbins, base_cmap=cmap)
             
-            # Create display
             display = pyart.graph.GridMapDisplay(self.data)
             
-            # Calculate cross-section azimuth
-            # This is a simplified approach - you might want to make this more sophisticated
-            azimuths = np.linspace(0, 360, 36)  # 36 azimuths for cross-sections
+            azimuths = np.linspace(0, 360, 36)
             azimuth = azimuths[azimuth_index % len(azimuths)]
             
             title = f'{field} Cross-section - Azimuth: {azimuth:.1f}°'
             
-            # For now, plot a vertical cross-section through the center
-            # This is simplified - PyART has more sophisticated cross-section methods
             try:
                 display.plot_cross_section(
                     field, [0, 0], [self.max_range * 1000, 0],
@@ -5245,30 +5714,217 @@ class GriddedPlotter:
                     colorbar_label=units, title=title
                 )
             except:
-                # Fallback to a simple vertical slice
                 ax.text(0.5, 0.5, f'Cross-section not available for {field}', 
                        transform=ax.transAxes, ha='center', va='center')
         else:
-            # For xarray, create a simple cross-section plot
-            ax.text(0.5, 0.5, f'RHI not implemented for xarray data', 
+            ax.text(0.5, 0.5, f'RHI not implemented for this data type', 
+                   transform=ax.transAxes, ha='center', va='center')
+                   
+    def plot_time_height(self, field, time_index, ax, settings=None):
+        """Plot time-height cross-section for MRR/profiler data"""
+        
+        if field not in self.data.data_vars:
+            ax.text(0.5, 0.5, f'Field {field} not found', 
+                   transform=ax.transAxes, ha='center', va='center')
+            return
+        
+        # Get field info
+        units, vmin, vmax, cmap, title, _ = get_xarray_field_info(self.data, field)
+        
+        # Apply custom settings if available
+        if settings:
+            custom_vmin = settings.get_field_setting(field, 'vmin')
+            custom_vmax = settings.get_field_setting(field, 'vmax')
+            custom_cmap = settings.get_field_setting(field, 'cmap')
+            
+            if custom_vmin is not None:
+                vmin = custom_vmin
+            if custom_vmax is not None:
+                vmax = custom_vmax
+            if custom_cmap:
+                if custom_cmap in _GV_COLORMAPS:
+                    cmap = _GV_COLORMAPS[custom_cmap]
+                else:
+                    try:
+                        cmap = custom_cmap
+                    except:
+                        pass
+        
+        # Get the data variable
+        data_var = self.data[field]
+        
+        # Check dimensions
+        if 'time' not in data_var.dims:
+            ax.text(0.5, 0.5, f'{field} does not have time dimension', 
+                   transform=ax.transAxes, ha='center', va='center')
+            return
+        
+        # Find range/height dimension
+        height_dim = None
+        for dim_name in ['range', 'height', 'altitude', 'z']:
+            if dim_name in data_var.dims:
+                height_dim = dim_name
+                break
+        
+        if height_dim is None:
+            ax.text(0.5, 0.5, f'{field} does not have height/range dimension', 
+                   transform=ax.transAxes, ha='center', va='center')
+            return
+        
+        # Get coordinates
+        time_coord = self.data.coords['time']
+        height_coord = self.data.coords[height_dim] if height_dim in self.data.coords else self.data[height_dim]
+        
+        # Handle 3D data (e.g., spectral density with spectral_bins dimension)
+        plot_data = data_var
+        if len(data_var.dims) > 2:
+            # Select only time and height dimensions
+            extra_dims = [d for d in data_var.dims if d not in ['time', height_dim]]
+            if extra_dims:
+                # Take a slice at the given index for extra dimensions
+                slice_dict = {extra_dims[0]: min(time_index, data_var.sizes[extra_dims[0]]-1)}
+                plot_data = data_var.isel(slice_dict)
+        
+        # Get data values
+        data_vals = plot_data.values
+        
+        # Convert time to matplotlib dates for better x-axis
+        try:
+            import pandas as pd
+            import matplotlib.dates as mdates
+            
+            time_vals = pd.to_datetime(time_coord.values)
+            time_numeric = mdates.date2num(time_vals)
+            time_label = 'Time (UTC)'
+            use_time_formatter = True
+        except:
+            # Fallback to numeric time
+            time_vals = time_coord.values
+            time_numeric = np.arange(len(time_vals))
+            time_label = 'Time Index'
+            use_time_formatter = False
+        
+        # Convert height to km if needed
+        height_vals = height_coord.values
+        if height_vals.max() > 100:  # Likely in meters
+            height_vals = height_vals / 1000.0
+            height_label = 'Height (km AGL)'
+        else:
+            height_label = 'Height (km AGL)'
+        
+        # Create the plot
+        try:
+            # Transpose data if needed (should be time x height)
+            if data_vals.shape[0] == len(time_vals) and data_vals.shape[1] == len(height_vals):
+                plot_vals = data_vals.T  # Transpose to height x time for pcolormesh
+            elif data_vals.shape[0] == len(height_vals) and data_vals.shape[1] == len(time_vals):
+                plot_vals = data_vals
+            else:
+                print(f"Warning: Data shape {data_vals.shape} doesn't match time={len(time_vals)}, height={len(height_vals)}")
+                plot_vals = data_vals.T
+            
+            # Use pcolormesh
+            im = ax.pcolormesh(time_numeric, height_vals, plot_vals,
+                              cmap=cmap, vmin=vmin, vmax=vmax,
+                              shading='auto')
+            
+            # Force x-axis to span the full time range
+            ax.set_xlim([time_numeric.min(), time_numeric.max()])
+            
+            # Format x-axis for time
+            if use_time_formatter:
+                import matplotlib.dates as mdates
+                
+                # Calculate time span to choose appropriate formatter
+                time_span_hours = (time_vals[-1] - time_vals[0]).total_seconds() / 3600.0
+                
+                # ==================== SMART TIME FORMATTING ====================
+                if time_span_hours < 2:
+                    # Less than 2 hours: show every 10 minutes
+                    ax.xaxis.set_major_locator(mdates.MinuteLocator(interval=10))
+                    ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
+                    ax.xaxis.set_minor_locator(mdates.MinuteLocator(interval=2))
+                elif time_span_hours < 6:
+                    # 2-6 hours: show every 30 minutes
+                    ax.xaxis.set_major_locator(mdates.MinuteLocator(interval=30))
+                    ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
+                    ax.xaxis.set_minor_locator(mdates.MinuteLocator(interval=10))
+                elif time_span_hours < 24:
+                    # 6-24 hours: show every hour
+                    ax.xaxis.set_major_locator(mdates.HourLocator(interval=1))
+                    ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
+                    ax.xaxis.set_minor_locator(mdates.MinuteLocator(interval=15))
+                else:
+                    # More than 24 hours: show every 6 hours with date
+                    ax.xaxis.set_major_locator(mdates.HourLocator(interval=6))
+                    ax.xaxis.set_major_formatter(mdates.DateFormatter('%m/%d %H:%M'))
+                    ax.xaxis.set_minor_locator(mdates.HourLocator(interval=1))
+                # ==================== END SMART FORMATTING ====================
+                
+                plt.setp(ax.xaxis.get_majorticklabels(), rotation=45, ha='right')
+            
+            # Set labels
+            ax.set_xlabel(time_label, fontsize=10)
+            ax.set_ylabel(height_label, fontsize=10)
+            
+            # Set limits with proportional padding
+            max_height_display = min(height_vals.max(), self.max_height)
+            padding_factor = 0.08  # 8% padding
+            padding = max_height_display * padding_factor
+            ax.set_ylim([0, max_height_display + padding])
+            
+            # Add colorbar
+            cb = plt.colorbar(im, ax=ax, label=units, pad=0.02)
+            
+            # Get location info for title
+            location = "Unknown Location"
+            try:
+                if 'latitude' in self.data.coords or 'latitude' in self.data.data_vars:
+                    lat = float(self.data['latitude'].values)
+                    lon = float(self.data['longitude'].values)
+                    location = f"{lat:.4f}°N, {lon:.4f}°E"
+            except:
+                pass
+            
+            # Get time range for title
+            try:
+                start_time = pd.Timestamp(time_vals[0]).strftime('%Y-%m-%d %H:%M')
+                end_time = pd.Timestamp(time_vals[-1]).strftime('%H:%M')
+                time_info = f"{start_time} to {end_time} UTC"
+            except:
+                time_info = "Time Series"
+            
+            # Add title
+            ax.set_title(f'{title}\n{location}\n{time_info}', 
+                        fontsize=10, fontweight='bold')
+            
+            # Set background
+            ax.set_facecolor('black')
+            
+            # Add grid
+            ax.grid(True, color='white', linestyle=':', linewidth=0.5, alpha=0.5)
+            
+        except Exception as e:
+            print(f"Error plotting time-height: {e}")
+            import traceback
+            traceback.print_exc()
+            ax.text(0.5, 0.5, f'Error plotting {field}\n{str(e)}', 
                    transform=ax.transAxes, ha='center', va='center')
     
     def _add_map_features(self, ax, lat, lon):
         """Add map features to the plot"""
         try:
-            # Add basic cartopy features
             ax.add_feature(cfeature.COASTLINE, color='white', linewidth=0.5)
             ax.add_feature(cfeature.BORDERS, color='white', linewidth=0.5)
             ax.add_feature(cfeature.STATES, color='white', linewidth=0.5)
             
-            # Add grid lines
             grid_lines = ax.gridlines(draw_labels=True, linewidth=0.5, color='gray', x_inline=False)
             grid_lines.top_labels = False
             grid_lines.right_labels = False
             grid_lines.xformatter = LONGITUDE_FORMATTER
             grid_lines.yformatter = LATITUDE_FORMATTER
         except:
-            pass  # Skip map features if they fail
+            pass
             
 class RadarPlotter:
     """Class to handle radar plotting using the existing plotting code with settings support"""
