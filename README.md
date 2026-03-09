@@ -102,9 +102,7 @@ A professional, interactive radar data visualization tool built for the NASA GPM
 
     pip install -r requirements.txt
 
-### Optional: County Shapefiles
-
-### Shapefile Setup
+### Optional: Shapefile Setup
 
     County shapefiles are included as `shape_files.zip`. Extract them:
 
