@@ -104,11 +104,12 @@ A professional, interactive radar data visualization tool built for the NASA GPM
 
 ### Optional: County Shapefiles
 
-    mkdir shape_files
-    cd shape_files
-    wget https://www.weather.gov/source/gis/Shapefiles/County/countyl010g.zip
-    unzip countyl010g.zip
-    cd ..
+### Shapefile Setup
+
+    County shapefiles are included as `shape_files.zip`. Extract them:
+
+    # After cloning the repo
+    unzip shape_files.zip
 
 ## Usage
 
