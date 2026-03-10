@@ -2406,29 +2406,34 @@ def detect_gridded_scan_type(data, data_type):
         # Check dimensions
         dims = list(data.dims.keys())
         
-        # ==================== TIME-HEIGHT (MRR, Vertical Profiler) ====================
-        # Has time and range/height dimensions
-        if 'time' in dims and ('range' in dims or 'height' in dims):
-            # Check if it's a single-point profiler (not scanning)
-            has_single_location = False
-            for coord in ['latitude', 'longitude', 'lat', 'lon']:
-                if coord in data.coords or coord in data.data_vars:
-                    coord_data = data.coords[coord] if coord in data.coords else data[coord]
-                    # Check if it's a single value
-                    if coord_data.size == 1:
-                        has_single_location = True
-                        break
-            
-            if has_single_location:
+        # ==================== TIME-HEIGHT (MRR, QVP, Profilers) ====================
+        # Has 'time' dimension AND a vertical dimension
+        has_time = 'time' in dims
+        has_vertical = any(vdim in dims for vdim in ['height', 'range', 'altitude', 'z', 'level'])
+        
+        # If it has time + vertical but NOT horizontal dimensions, it's TIME-HEIGHT
+        has_horizontal = any(hdim in dims for hdim in ['x', 'y', 'lon', 'lat', 'longitude', 'latitude'])
+        
+        if has_time and has_vertical:
+            # Check if it's 2D time-height (profiler) or 3D+ (scanning radar)
+            if len(dims) == 2:
+                # Only time and height - definitely TIME-HEIGHT
+                return "TIME-HEIGHT"
+            elif not has_horizontal:
+                # Has time, vertical, but no horizontal - still TIME-HEIGHT
                 return "TIME-HEIGHT"
         
         # ==================== RHI (Range-Height Indicator) ====================
-        # Has z (height) and x (range) dimensions but not y
-        if 'z' in dims and 'x' in dims and 'y' not in dims:
+        # Has z (height) and x (range) dimensions but not y or time
+        if 'z' in dims and 'x' in dims and 'y' not in dims and 'time' not in dims:
             return "RHI"
         
-        # RHI: or height and range naming (with sweep dimension)
+        # RHI: or height and range with sweep dimension
         if 'height' in dims and 'range' in dims and 'sweep' in dims:
+            return "RHI"
+        
+        # RHI: height and x with sweep
+        if ('height' in dims or 'z' in dims) and 'x' in dims and 'sweep' in dims:
             return "RHI"
         
         # ==================== PPI (Plan Position Indicator) ====================
@@ -2440,10 +2445,11 @@ def detect_gridded_scan_type(data, data_type):
         if ('lat' in dims or 'latitude' in dims) and ('lon' in dims or 'longitude' in dims):
             return "PPI"
         
-        # Check global attributes for hints
+        # ==================== CHECK GLOBAL ATTRIBUTES AS FALLBACK ====================
+        # Only use attributes if dimension-based detection is ambiguous
         if 'source' in data.attrs:
             source = str(data.attrs['source']).lower()
-            if 'mrr' in source or 'micro rain radar' in source:
+            if 'mrr' in source or 'micro rain radar' in source or 'qvp' in source:
                 return "TIME-HEIGHT"
         
         if 'description' in data.attrs:
@@ -2452,9 +2458,11 @@ def detect_gridded_scan_type(data, data_type):
                 return "RHI"
             if 'ppi' in desc:
                 return "PPI"
+            if 'qvp' in desc or 'quasi-vertical' in desc:
+                return "TIME-HEIGHT"
     
     elif data_type == 'grid':
-        # PyART Grid - check if it has RHI structure
+        # PyART Grid - check structure
         if hasattr(data, 'nz') and hasattr(data, 'nx') and not hasattr(data, 'ny'):
             return "RHI"
         # Typical PyART grid is PPI
@@ -2991,8 +2999,15 @@ class RadarViewer(QMainWindow):
             info.append(f"Data Type: PyART Grid")
             
             # Time
-            if 'time' in grid.axes:
-                info.append(f"Time: {grid.time['data'][0]}")
+            try:
+                if hasattr(grid, 'time') and 'data' in grid.time:
+                    time_val = grid.time['data'][0]
+                    if hasattr(time_val, 'strftime'):
+                        info.append(f"Time: {time_val.strftime('%Y-%m-%d %H:%M:%S UTC')}")
+                    else:
+                        info.append(f"Time: {time_val}")
+            except:
+                info.append(f"Time: Unknown")
             
             # Origin
             info.append(f"Origin Latitude: {grid.origin_latitude['data'][0]:.4f}°")
@@ -4186,7 +4201,7 @@ class RadarViewer(QMainWindow):
         options = QFileDialog.Options()
         file_path, _ = QFileDialog.getOpenFileName(
             self, "Open Radar/Grid File", "", 
-            "Data Files (*.nc *.h5 *.mdv *.cf.gz *.hdf5 *.cdf *_V06);;All Files (*)", 
+            "Data Files (*.nc *.h5 *.mdv *.gz *.hdf5 *.cdf *_V06);;All Files (*)", 
             options=options
         )
     
@@ -5271,10 +5286,11 @@ class GriddedPlotter:
             # Get grid coordinates
             x = self.data.x['data'] / 1000.0  # Convert to km
             y = self.data.y['data'] / 1000.0  # Convert to km
-            
+                        
             # Get origin coordinates
             origin_lat = self.data.origin_latitude['data'][0]
             origin_lon = self.data.origin_longitude['data'][0]
+            
             
             # Calculate lat/lon extent
             meters_to_lat = 1.0 / 111177.0
@@ -5285,8 +5301,24 @@ class GriddedPlotter:
             min_lat = origin_lat + (y.min() * 1000.0 * meters_to_lat)
             max_lat = origin_lat + (y.max() * 1000.0 * meters_to_lat)
                         
+            # Check if data is in valid range
+            data_in_range = np.sum((grid_data >= vmin) & (grid_data <= vmax))
+                        
             # Create title
-            grid_time = self.data.time['data'][0] if 'time' in self.data.axes else 'Unknown Time'
+            try:
+                if hasattr(self.data, 'time'):
+                    if isinstance(self.data.time, dict):
+                        # PyART Grid
+                        grid_time = self.data.time['data'][0]
+                    else:
+                        # xarray
+                        grid_time = self.data.time.values[0]
+                else:
+                    grid_time = 'Unknown Time'
+            except Exception as e:
+                print(f"Could not get time from grid: {e}")
+                grid_time = 'Unknown Time'
+
             if hasattr(grid_time, 'strftime'):
                 time_str = grid_time.strftime('%m/%d/%Y %H:%M:%S UTC')
             else:
@@ -5298,10 +5330,18 @@ class GriddedPlotter:
             im = ax.imshow(grid_data, origin='lower', cmap=cmap,
                           extent=[min_lon, max_lon, min_lat, max_lat],
                           transform=ccrs.PlateCarree(),
-                          vmin=vmin, vmax=vmax)
+                          vmin=vmin, vmax=vmax,  zorder=5)
             
+            # Set the map extent to data
             ax.set_extent([min_lon, max_lon, min_lat, max_lat], crs=ccrs.PlateCarree())
             
+            # Verify it was set
+            try:
+                new_extent = ax.get_extent(crs=ccrs.PlateCarree())
+                print(f"   New map extent: {new_extent}")
+            except:
+                pass   
+                      
             # Add map features
             try:
                 ax.coastlines(resolution='50m', linewidth=0.5, color='white')
@@ -5793,17 +5833,75 @@ class GriddedPlotter:
             import pandas as pd
             import matplotlib.dates as mdates
             
-            time_vals = pd.to_datetime(time_coord.values)
+            # ==================== SMART TIME CONVERSION ====================
+            time_values = time_coord.values
+            
+            # Method 1: Check if values look like days since epoch
+            # Days since 1970 typically range from ~10000 (1997) to ~20000 (2024)
+            if time_values.min() > 1000 and time_values.max() < 50000:
+                # Convert from days to datetime
+                time_vals = pd.to_datetime(time_values, unit='D', origin='unix')
+            
+            # Method 2: Check if time has units attribute (CF convention)
+            elif 'units' in time_coord.attrs:
+                units_str = time_coord.attrs['units']
+                
+                try:
+                    from cftime import num2date
+                    # Parse units like "seconds since 2024-01-15 06:00:00"
+                    time_vals = num2date(time_values, units=units_str)
+                    time_vals = pd.to_datetime([t.strftime('%Y-%m-%d %H:%M:%S') for t in time_vals])
+                except Exception as e:
+                    print(f"   CF conversion failed: {e}")
+                    
+                    # Manual parsing of common formats
+                    import re
+                    match = re.search(r'since\s+(\d{4}-\d{2}-\d{2}(?:\s+\d{2}:\d{2}:\d{2})?)', units_str)
+                    if match:
+                        reference_time = pd.Timestamp(match.group(1))
+                        
+                        # Determine the time unit
+                        if 'second' in units_str.lower():
+                            time_vals = reference_time + pd.to_timedelta(time_values, unit='s')
+                        elif 'minute' in units_str.lower():
+                            time_vals = reference_time + pd.to_timedelta(time_values, unit='m')
+                        elif 'hour' in units_str.lower():
+                            time_vals = reference_time + pd.to_timedelta(time_values, unit='h')
+                        elif 'day' in units_str.lower():
+                            time_vals = reference_time + pd.to_timedelta(time_values, unit='D')
+                        else:
+                            raise ValueError(f"Unknown time unit in: {units_str}")
+                        
+                    else:
+                        raise ValueError(f"Could not parse units: {units_str}")
+            
+            # Method 3: Check if values are very large (seconds since epoch)
+            elif time_values.min() > 1e9:
+                time_vals = pd.to_datetime(time_values, unit='s')
+            
+            # Method 4: Direct pandas (for proper datetime objects)
+            else:
+                time_vals = pd.to_datetime(time_values)
+            # ==================== END SMART CONVERSION ====================
+            
+            # Convert to matplotlib dates
             time_numeric = mdates.date2num(time_vals)
+            
             time_label = 'Time (UTC)'
             use_time_formatter = True
-        except:
-            # Fallback to numeric time
+            
+        except Exception as e:
+            print(f"   ⚠️ Time conversion failed: {e}")
+            import traceback
+            traceback.print_exc()
+            
+            # Fallback to numeric time index
             time_vals = time_coord.values
             time_numeric = np.arange(len(time_vals))
             time_label = 'Time Index'
             use_time_formatter = False
-        
+            print(f"   Using fallback: time index 0 to {len(time_vals)-1}")
+    
         # Convert height to km if needed
         height_vals = height_coord.values
         if height_vals.max() > 100:  # Likely in meters
@@ -5814,31 +5912,37 @@ class GriddedPlotter:
         
         # Create the plot
         try:
-            # Transpose data if needed (should be time x height)
+            # Get data values
+            data_vals = plot_data.values
+            
+            # For pcolormesh: data must be (height, time) not (time, height)
+            # Check current orientation
             if data_vals.shape[0] == len(time_vals) and data_vals.shape[1] == len(height_vals):
-                plot_vals = data_vals.T  # Transpose to height x time for pcolormesh
+                # Data is (time, height) - needs transpose
+                plot_vals = data_vals.T
             elif data_vals.shape[0] == len(height_vals) and data_vals.shape[1] == len(time_vals):
+                # Data is already (height, time) - no transpose needed
                 plot_vals = data_vals
             else:
-                print(f"Warning: Data shape {data_vals.shape} doesn't match time={len(time_vals)}, height={len(height_vals)}")
+                # Shape mismatch - try transpose anyway
                 plot_vals = data_vals.T
-            
+                    
             # Use pcolormesh
             im = ax.pcolormesh(time_numeric, height_vals, plot_vals,
                               cmap=cmap, vmin=vmin, vmax=vmax,
-                              shading='auto')
+                              shading='auto', zorder=2)
             
-            # Force x-axis to span the full time range
-            ax.set_xlim([time_numeric.min(), time_numeric.max()])
-            
-            # Format x-axis for time
+            # ==================== FIX: Proper time axis formatting ====================
+            # Format x-axis for time (like your working code)
             if use_time_formatter:
                 import matplotlib.dates as mdates
                 
+                # Enable date formatting on x-axis
+                ax.xaxis_date()
+                
                 # Calculate time span to choose appropriate formatter
                 time_span_hours = (time_vals[-1] - time_vals[0]).total_seconds() / 3600.0
-                
-                # ==================== SMART TIME FORMATTING ====================
+                                
                 if time_span_hours < 2:
                     # Less than 2 hours: show every 10 minutes
                     ax.xaxis.set_major_locator(mdates.MinuteLocator(interval=10))
@@ -5859,17 +5963,21 @@ class GriddedPlotter:
                     ax.xaxis.set_major_locator(mdates.HourLocator(interval=6))
                     ax.xaxis.set_major_formatter(mdates.DateFormatter('%m/%d %H:%M'))
                     ax.xaxis.set_minor_locator(mdates.HourLocator(interval=1))
-                # ==================== END SMART FORMATTING ====================
                 
+                # Auto-format date labels (rotation, alignment)
                 plt.setp(ax.xaxis.get_majorticklabels(), rotation=45, ha='right')
+            else:
+                # Fallback to numeric time
+                print(f"   Using numeric time axis")
             
             # Set labels
             ax.set_xlabel(time_label, fontsize=10)
             ax.set_ylabel(height_label, fontsize=10)
             
-            # Set limits with proportional padding
+            # Set limits
+            ax.set_xlim([time_numeric.min(), time_numeric.max()])
             max_height_display = min(height_vals.max(), self.max_height)
-            padding_factor = 0.08  # 8% padding
+            padding_factor = 0.08
             padding = max_height_display * padding_factor
             ax.set_ylim([0, max_height_display + padding])
             
@@ -5903,14 +6011,14 @@ class GriddedPlotter:
             
             # Add grid
             ax.grid(True, color='white', linestyle=':', linewidth=0.5, alpha=0.5)
-            
+                        
         except Exception as e:
-            print(f"Error plotting time-height: {e}")
+            print(f"   ❌ Error plotting time-height: {e}")
             import traceback
             traceback.print_exc()
             ax.text(0.5, 0.5, f'Error plotting {field}\n{str(e)}', 
                    transform=ax.transAxes, ha='center', va='center')
-    
+                   
     def _add_map_features(self, ax, lat, lon):
         """Add map features to the plot"""
         try:
