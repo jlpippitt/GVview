@@ -375,40 +375,75 @@ class PlottingCache:
     
     def __init__(self):
         if not self._initialized:
-            self._counties_states_cache = None
+            self._map_features_cache = None
             self._logos_cache = {}
             self._field_cache = {}
             self._coordinate_cache = {}
             self._initialized = True
     
-    def get_counties_states(self):
-        if self._counties_states_cache is None:
-            self._counties_states_cache = self._load_counties_states()
-        return self._counties_states_cache
+    def get_map_features(self):
+        """Get all map features (counties, states, reefs, minor islands)"""
+        if self._map_features_cache is None:
+            self._map_features_cache = self._load_counties_states()
+        return self._map_features_cache
     
     def _load_counties_states(self):
+        """Load counties, states, reefs, and minor islands"""
         try:
-            county_dir = os.path.dirname(__file__)
-            shapefile_path = os.path.join(county_dir, "shape_files/", "countyl010g.shp")
-            reader = shpreader.Reader(shapefile_path)
-            counties = list(reader.geometries())
-            COUNTIES = cfeature.ShapelyFeature(counties, ccrs.PlateCarree())
-
+            base_dir = os.path.dirname(__file__)
+            shapefile_dir = os.path.join(base_dir, "shape_files/")
+            
+            # ==================== Load US Counties ====================
+            COUNTIES = None
+            county_shapefile = os.path.join(shapefile_dir, "countyl010g.shp")
+            if os.path.exists(county_shapefile):
+                try:
+                    reader = shpreader.Reader(county_shapefile)
+                    counties = list(reader.geometries())
+                    COUNTIES = cfeature.ShapelyFeature(counties, ccrs.PlateCarree())
+                except Exception as e:
+                    print(f"⚠️ Could not load counties: {e}")
+    
+            # ==================== Load States ====================
             STATES = cfeature.NaturalEarthFeature(
                                         category='cultural',
                                         name='admin_1_states_provinces_lines',
                                         scale='10m',
                                         facecolor='none')
-            return COUNTIES, STATES
-        except:
-            # Return basic features if shapefiles not available
+            
+            # ==================== Load Reefs ====================
+            REEFS = None
+            reef_shapefile = os.path.join(shapefile_dir, "ne_10m_reefs.shp")
+            if os.path.exists(reef_shapefile):
+                try:
+                    reef_reader = shpreader.Reader(reef_shapefile)
+                    reefs = list(reef_reader.geometries())
+                    REEFS = cfeature.ShapelyFeature(reefs, ccrs.PlateCarree())
+                except Exception as e:
+                    print(f"⚠️ Could not load reefs: {e}")
+            
+            # ==================== Load Minor Islands ====================
+            MINOR_ISLANDS = None
+            islands_shapefile = os.path.join(shapefile_dir, "ne_10m_minor_islands.shp")
+            if os.path.exists(islands_shapefile):
+                try:
+                    islands_reader = shpreader.Reader(islands_shapefile)
+                    islands = list(islands_reader.geometries())
+                    MINOR_ISLANDS = cfeature.ShapelyFeature(islands, ccrs.PlateCarree())
+                except Exception as e:
+                    print(f"⚠️ Could not load minor islands: {e}")
+            
+            return COUNTIES, STATES, REEFS, MINOR_ISLANDS
+            
+        except Exception as e:
+            print(f"Error loading shapefiles: {e}")
             STATES = cfeature.NaturalEarthFeature(
                                         category='cultural',
                                         name='admin_1_states_provinces_lines',
                                         scale='50m',
                                         facecolor='none')
-            return None, STATES
-    
+            return None, STATES, None, None
+        
     def get_logo(self, logo_name):
         if logo_name not in self._logos_cache:
             try:
@@ -5237,24 +5272,29 @@ class GriddedPlotter:
         self._cache = PlottingCache()
     
     def plot_grid_ppi(self, field, level, ax, settings=None):
-        """Plot gridded data at a specific level with map background or RHI if applicable"""
+        """Plot gridded data at a specific level with map background or RHI/Time-Height if applicable"""
         
         # ==================== DETECT SCAN TYPE ====================
         scan_type = detect_gridded_scan_type(self.data, self.data_type)
         
         if scan_type == "RHI":
             # This is RHI data, redirect to RHI plotting
+            print(f"Detected RHI gridded data, using RHI plot method")
             self.plot_xarray_rhi(field, level, ax, settings)
             return
+        
         # ==================== TIME-HEIGHT ROUTING ====================
         elif scan_type == "TIME-HEIGHT":
             # This is MRR/profiler data, redirect to time-height plotting
+            print(f"Detected TIME-HEIGHT profiler data, using time-height plot method")
             self.plot_time_height(field, level, ax, settings)
-            return    
-            
+            return
+        # ==================== END ROUTING ====================
+        
         # ==================== PPI PLOTTING ====================
         if self.data_type == 'grid':
             # PyART Grid object
+            
             units, vmin, vmax, cmap, _, Nbins = get_grid_field_info(self.data, field)
             
             # Apply custom settings if available
@@ -5279,20 +5319,29 @@ class GriddedPlotter:
             # Apply discrete colormap if needed
             if Nbins > 0:
                 cmap = discrete_cmap(Nbins, base_cmap=cmap)
-            
-            # Get grid data
-            grid_data = self.data.fields[field]['data'][level, :, :]
-            
-            # Get grid coordinates
-            x = self.data.x['data'] / 1000.0  # Convert to km
-            y = self.data.y['data'] / 1000.0  # Convert to km
                         
-            # Get origin coordinates
+            # Get time for title
+            try:
+                if hasattr(self.data, 'time') and isinstance(self.data.time, dict):
+                    grid_time = self.data.time['data'][0]
+                    if hasattr(grid_time, 'strftime'):
+                        time_str = grid_time.strftime('%m/%d/%Y %H:%M:%S UTC')
+                    else:
+                        time_str = str(grid_time)
+                else:
+                    time_str = 'Unknown Time'
+            except:
+                time_str = 'Unknown Time'
+            
+            title = f'{field} - Level {level} - {time_str}'
+            
+            # Get origin and calculate extent
             origin_lat = self.data.origin_latitude['data'][0]
             origin_lon = self.data.origin_longitude['data'][0]
             
+            x = self.data.x['data'] / 1000.0  # km
+            y = self.data.y['data'] / 1000.0  # km
             
-            # Calculate lat/lon extent
             meters_to_lat = 1.0 / 111177.0
             meters_to_lon = 1.0 / (111177.0 * np.cos(np.radians(origin_lat)))
             
@@ -5300,78 +5349,91 @@ class GriddedPlotter:
             max_lon = origin_lon + (x.max() * 1000.0 * meters_to_lon)
             min_lat = origin_lat + (y.min() * 1000.0 * meters_to_lat)
             max_lat = origin_lat + (y.max() * 1000.0 * meters_to_lat)
-                        
-            # Check if data is in valid range
-            data_in_range = np.sum((grid_data >= vmin) & (grid_data <= vmax))
-                        
-            # Create title
+            
+            
+            # ==================== ADD BASE MAP FEATURES FIRST ====================
             try:
-                if hasattr(self.data, 'time'):
-                    if isinstance(self.data.time, dict):
-                        # PyART Grid
-                        grid_time = self.data.time['data'][0]
-                    else:
-                        # xarray
-                        grid_time = self.data.time.values[0]
-                else:
-                    grid_time = 'Unknown Time'
-            except Exception as e:
-                print(f"Could not get time from grid: {e}")
-                grid_time = 'Unknown Time'
-
-            if hasattr(grid_time, 'strftime'):
-                time_str = grid_time.strftime('%m/%d/%Y %H:%M:%S UTC')
-            else:
-                time_str = str(grid_time)
-            
-            title = f'{field} - Level {level} - {time_str}'
-            
-            # Plot the data with map background
-            im = ax.imshow(grid_data, origin='lower', cmap=cmap,
-                          extent=[min_lon, max_lon, min_lat, max_lat],
-                          transform=ccrs.PlateCarree(),
-                          vmin=vmin, vmax=vmax,  zorder=5)
-            
-            # Set the map extent to data
-            ax.set_extent([min_lon, max_lon, min_lat, max_lat], crs=ccrs.PlateCarree())
-            
-            # Verify it was set
-            try:
-                new_extent = ax.get_extent(crs=ccrs.PlateCarree())
-                print(f"   New map extent: {new_extent}")
-            except:
-                pass   
-                      
-            # Add map features
-            try:
-                ax.coastlines(resolution='50m', linewidth=0.5, color='white')
-                ax.add_feature(cfeature.BORDERS, linewidth=0.5, edgecolor='white')
-                ax.add_feature(cfeature.STATES, linewidth=0.3, edgecolor='white')
+                COUNTIES, STATES, REEFS, MINOR_ISLANDS = self._cache.get_map_features()
+                
                 ax.add_feature(cfeature.OCEAN.with_scale('50m'), facecolor="#414141", zorder=0)
+                ax.add_feature(cfeature.LAND.with_scale('50m'), facecolor='black', 
+                              edgecolor='none', zorder=0)
                 ax.add_feature(cfeature.LAKES.with_scale('50m'), facecolor="#414141", 
-                              edgecolor='white', linewidth=0.25, zorder=0)
+                              edgecolor='white', linewidth=0.25, zorder=1)
                 
-                try:
-                    COUNTIES, STATES = self._cache.get_counties_states()
-                    if COUNTIES:
-                        ax.add_feature(COUNTIES, facecolor='none', edgecolor='white', linewidth=0.25)
-                except:
-                    pass
+                if MINOR_ISLANDS:
+                    ax.add_feature(MINOR_ISLANDS, facecolor='#3d3d3d', edgecolor='white', 
+                                  linewidth=0.3, zorder=2)
                 
+                
+            except Exception as e:
+                print(f"   ⚠️ Could not add base map features: {e}")
+            
+            # ==================== PLOT GRID DATA MANUALLY ====================
+            # PyART's plot_grid() is unreliable with projections - do it manually
+            
+            try:
+                # Get the data for this level
+                data = self.data.fields[field]['data'][level, :, :]
+                                
+                # Convert grid coordinates to lat/lon
+                # x and y are in km, need to convert to degrees
+                lon_grid = origin_lon + (x * 1000.0 * meters_to_lon)
+                lat_grid = origin_lat + (y * 1000.0 * meters_to_lat)
+                
+                # Create 2D coordinate arrays
+                LON, LAT = np.meshgrid(lon_grid, lat_grid)
+                                
+                # Plot using pcolormesh with explicit PlateCarree transform
+                im = ax.pcolormesh(LON, LAT, data,
+                                  transform=ccrs.PlateCarree(),
+                                  cmap=cmap, 
+                                  vmin=vmin, 
+                                  vmax=vmax,
+                                  shading='auto',
+                                  zorder=10)
+                
+                # Add colorbar
+                cb = plt.colorbar(im, ax=ax, label=units, pad=0.02, shrink=0.9)
+                
+                # Set extent
+                ax.set_extent([min_lon, max_lon, min_lat, max_lat], crs=ccrs.PlateCarree())
+                
+            except Exception as e:
+                print(f"   ❌ Manual plotting failed: {e}")
+                import traceback
+                traceback.print_exc()
+            
+            # ==================== ADD BOUNDARIES ON TOP ====================
+            try:
+                COUNTIES, STATES, REEFS, MINOR_ISLANDS = self._cache.get_map_features()
+                
+                ax.coastlines(resolution='50m', linewidth=0.5, color='white', zorder=100)
+                ax.add_feature(cfeature.BORDERS, linewidth=0.5, edgecolor='white', zorder=100)
+                ax.add_feature(STATES, linewidth=0.3, edgecolor='white', zorder=100)
+                
+                if REEFS:
+                    ax.add_feature(REEFS, facecolor='none', edgecolor='cyan', 
+                                  linewidth=0.4, zorder=100, alpha=0.8)
+                
+                if COUNTIES:
+                    ax.add_feature(COUNTIES, facecolor='none', edgecolor='white', 
+                                  linewidth=0.25, zorder=100)
+                
+                # Grid lines
                 gl = ax.gridlines(draw_labels=True, linewidth=0.5, color='gray', 
-                                 alpha=0.5, linestyle='--')
+                                 alpha=0.5, linestyle='--', zorder=150)
                 gl.top_labels = False
                 gl.right_labels = False
                 gl.xformatter = LONGITUDE_FORMATTER
                 gl.yformatter = LATITUDE_FORMATTER
-                
+                                
             except Exception as e:
-                print(f"Could not add map features: {e}")
+                print(f"   ⚠️ Could not add boundaries: {e}")
             
-            # Add colorbar
-            cb = plt.colorbar(im, ax=ax, label=units, pad=0.02)
+            # Add title
             ax.set_title(title, fontsize=10, fontweight='bold')
-            
+                        
         elif self.data_type == 'xarray':
             # xarray Dataset - PPI
             self.plot_xarray_ppi(field, level, ax, settings)
@@ -5494,19 +5556,38 @@ class GriddedPlotter:
                 # Mask common fill values
                 data_vals = np.ma.masked_where(data_vals < -30000, data_vals)
                 data_vals = np.ma.masked_invalid(data_vals)  # Also mask NaN/Inf
-                
+                                
                 # For 2D lat/lon arrays (like your 801x801), use pcolormesh instead of imshow
                 if len(lons.shape) == 2 and len(lats.shape) == 2:
                     im = ax.pcolormesh(lons, lats, data_vals,
                                       transform=ccrs.PlateCarree(),
                                       cmap=cmap, vmin=vmin, vmax=vmax,
-                                      shading='auto', zorder=5)
+                                      shading='nearest', zorder=5)
                 else:
-                    im = ax.imshow(data_vals, origin='lower', cmap=cmap,
-                                  extent=extent,
-                                  transform=ccrs.PlateCarree(),
-                                  vmin=vmin, vmax=vmax, zorder=5)
-                              
+                    # 1D coordinates - create meshgrid for pcolormesh                    
+                    # Create 2D coordinate arrays from 1D
+                    LON, LAT = np.meshgrid(lons, lats)
+                    
+                    # Use pcolormesh which respects pixel boundaries better
+                    im = ax.pcolormesh(LON, LAT, data_vals,
+                                      transform=ccrs.PlateCarree(),
+                                      cmap=cmap, 
+                                      vmin=vmin, 
+                                      vmax=vmax,
+                                      shading='nearest',
+                                      zorder=10)
+                                        
+                    # Set extent to match data bounds
+                    lon_spacing = (lons[-1] - lons[0]) / (len(lons) - 1) if len(lons) > 1 else 0.1
+                    lat_spacing = (lats[-1] - lats[0]) / (len(lats) - 1) if len(lats) > 1 else 0.1
+                    
+                    extent = [
+                        lons[0] - lon_spacing/2,
+                        lons[-1] + lon_spacing/2,
+                        lats[0] - lat_spacing/2,
+                        lats[-1] + lat_spacing/2
+                    ]
+                    
                 ax.set_extent(extent, crs=ccrs.PlateCarree())
                 
                 # Add map features
@@ -5514,6 +5595,8 @@ class GriddedPlotter:
                     ax.coastlines(resolution='50m', linewidth=0.5, color='white', zorder=10)
                     ax.add_feature(cfeature.BORDERS, linewidth=0.5, edgecolor='white', zorder=10)
                     ax.add_feature(cfeature.STATES, linewidth=0.3, edgecolor='white', zorder=10)
+                    ax.add_feature(cfeature.LAND.with_scale('50m'), facecolor='black', 
+                                   edgecolor='none', zorder=0)
                     ax.add_feature(cfeature.OCEAN.with_scale('50m'), facecolor="#414141", zorder=0)
                     ax.add_feature(cfeature.LAKES.with_scale('50m'), facecolor="#414141", 
                                   edgecolor='white', linewidth=0.25, zorder=1)
@@ -6263,21 +6346,51 @@ class RadarPlotter:
         
         # Add map features
         try:
-            COUNTIES, STATES = self._cache.get_counties_states()
-            if STATES:
-                ax.add_feature(STATES, facecolor='none', edgecolor='white', lw=0.5)
-            if COUNTIES:
-                ax.add_feature(COUNTIES, facecolor='none', edgecolor='white', lw=0.25)
-        except:
-            pass
+            COUNTIES, STATES, REEFS, MINOR_ISLANDS = self._cache.get_map_features()
             
-        # Add basic cartopy features
-        ax.add_feature(cfeature.COASTLINE, color='white', linewidth=0.5)
-        ax.add_feature(cfeature.BORDERS, color='white', linewidth=0.5)
-        ax.add_feature(cfeature.OCEAN.with_scale('50m'), facecolor="#414141")
-        ax.add_feature(cfeature.LAKES.with_scale('50m'), facecolor="#414141", 
-                      edgecolor='white', lw=0.25, zorder=0)
-        
+            # ==================== BASE LAYERS (BEHIND DATA) ====================
+            # Ocean and lakes first (zorder 0-1)
+            ax.add_feature(cfeature.OCEAN.with_scale('50m'), facecolor="#414141", zorder=0)
+            ax.add_feature(cfeature.LAKES.with_scale('50m'), facecolor="#414141", 
+                          edgecolor='white', lw=0.25, zorder=1)
+            
+            # ==================== MINOR ISLANDS (LANDMASS) ====================
+            # Show small islands as dark gray landmass (before data, after ocean)
+            if MINOR_ISLANDS:
+                ax.add_feature(MINOR_ISLANDS, facecolor='#3d3d3d', edgecolor='white', 
+                              linewidth=0.3, zorder=2)
+            # ==================== END MINOR ISLANDS ====================
+            
+            # ==================== POLITICAL BOUNDARIES (ON TOP) ====================
+            # Coastlines and borders (zorder 10)
+            ax.add_feature(cfeature.COASTLINE, color='white', linewidth=0.5, zorder=10)
+            ax.add_feature(cfeature.BORDERS, color='white', linewidth=0.5, zorder=10)
+            
+            # States
+            if STATES:
+                ax.add_feature(STATES, facecolor='none', edgecolor='white', lw=0.5, zorder=10)
+            
+            # Counties
+            if COUNTIES:
+                ax.add_feature(COUNTIES, facecolor='none', edgecolor='white', lw=0.25, zorder=10)
+            
+            # Reefs (cyan for visibility)
+            if REEFS:
+                ax.add_feature(REEFS, facecolor='none', edgecolor='cyan', 
+                              linewidth=0.4, zorder=10, alpha=0.8)
+            
+        except Exception as e:
+            print(f"Could not add map features: {e}")
+            # Fallback to basic features
+            try:
+                ax.add_feature(cfeature.COASTLINE, color='white', linewidth=0.5)
+                ax.add_feature(cfeature.BORDERS, color='white', linewidth=0.5)
+                ax.add_feature(cfeature.OCEAN.with_scale('50m'), facecolor="#414141")
+                ax.add_feature(cfeature.LAKES.with_scale('50m'), facecolor="#414141", 
+                              edgecolor='white', lw=0.25, zorder=0)
+            except:
+                pass
+            
         # Add range rings with custom spacing
         if self.show_range_rings:
             for rng in range(self.range_ring_spacing, self.max_range + self.range_ring_spacing,
@@ -6307,7 +6420,7 @@ class RadarPlotter:
             
         if annotation_manager:
             self._add_annotations(ax, annotation_manager, zoom_xlim, zoom_ylim)
-    
+        
         # Apply special colorbar adjustments
         if hasattr(display, 'cbs') and len(display.cbs) > 0:
             adjust_special_colorbars(field, display, 0)
