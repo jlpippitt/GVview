@@ -1,3 +1,5 @@
+#!/usr/bin/env python
+
 import os, sys
 os.environ['PYART_QUIET'] = '1'  # Suppress PyART citation
 
