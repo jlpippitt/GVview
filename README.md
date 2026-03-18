@@ -36,7 +36,7 @@ A professional, interactive radar data visualization tool built for the NASA GPM
 - **Height Control** - Configurable max height for RHI plots (1-25 km)
 
 ### 📋 **Metadata**
-- **Data Info Button** - View Meradata
+- **Data Info Button** - View Metadata
 
 ### 🎨 **Customization**
 - **Colorbar Settings** - Custom colormaps, min/max values per field
