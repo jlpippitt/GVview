@@ -2836,6 +2836,48 @@ class RadarViewer(QMainWindow):
             self.settings.qsettings.setValue('display/spacing_scale', spacing_spin.value())
             
             self.update_plot()
+            
+    def update_ui_for_data_type(self):
+        """Update UI controls based on loaded data type and scan type"""
+        
+        if self.data_type == 'radar':
+            # Radar data - enable range control
+            self.range_spinner.setEnabled(True)
+            self.range_spinner.setToolTip("Maximum display range from radar")
+            
+            # Height control only for RHI
+            if self.scan_type == "RHI":
+                self.height_spinner.setEnabled(True)
+                self.height_spinner.setToolTip("Maximum height for RHI display")
+            else:
+                self.height_spinner.setEnabled(False)
+                self.height_spinner.setToolTip("Height control only for RHI scans")
+        
+        elif self.data_type in ['grid', 'xarray']:
+            # Check scan type for gridded data
+            if self.scan_type == "TIME-HEIGHT":
+                # Profiler data - disable range, enable height
+                self.range_spinner.setEnabled(False)
+                self.range_spinner.setToolTip("Range control disabled for profiler data")
+                
+                self.height_spinner.setEnabled(False)
+                self.height_spinner.setToolTip("Maximum height for time-height display")
+            
+            elif self.scan_type == "RHI":
+                # Gridded RHI - enable both
+                self.range_spinner.setEnabled(False)
+                self.range_spinner.setToolTip("Maximum range for RHI display")
+                
+                self.height_spinner.setEnabled(False)
+                self.height_spinner.setToolTip("Maximum height for RHI display")
+            
+            else:  # PPI
+                # Gridded PPI - enable range
+                self.range_spinner.setEnabled(False)
+                self.range_spinner.setToolTip("Maximum display range")
+                
+                self.height_spinner.setEnabled(False)
+                self.height_spinner.setToolTip("Height control only for RHI/profiler data")            
     
     def create_toolbar(self):
         """Create the main toolbar with settings and options"""
@@ -2900,9 +2942,17 @@ class RadarViewer(QMainWindow):
         # Pass the appropriate data object to the dialog
         data_obj = self.radar if self.radar else self.gridded_data
         
+        # Create dialog fresh each time (don't reuse)
         dialog = SettingsDialog(self, data_obj, self.settings)
-        if dialog.exec_() == QDialog.Accepted:
+        
+        # Use exec_() for modal behavior
+        result = dialog.exec_()
+        
+        if result == QDialog.Accepted:
             self.update_plot()
+        
+        # Explicitly delete dialog after use
+        dialog.deleteLater()
             
     def show_data_info(self):
         """Show metadata information about the loaded data"""
@@ -3819,35 +3869,17 @@ class RadarViewer(QMainWindow):
             return
     
         try:
-            # ==================== CLEAN CANVAS CLEARING ====================
-            # Close all matplotlib figures first
+            # ==================== SIMPLE CLEARING (NO FANCY TRICKS) ====================
             plt.close('all')
             
-            # Clear the existing figure if it exists
             if hasattr(self, 'figure') and self.figure is not None:
                 self.figure.clear()
                 plt.close(self.figure)
                 self.figure = None
             
-            # Force garbage collection
             gc.collect()
-            
-            # Clear the canvas by setting it to white background
-            if hasattr(self, 'canvas') and self.canvas:
-                # Set canvas background to white
-                self.canvas.setStyleSheet("background-color: white;")
-                
-                # If canvas has a figure, clear it
-                if self.canvas.figure is not None:
-                    self.canvas.figure.clear()
-                    plt.close(self.canvas.figure)
-                
-                # Force Qt to repaint
-                self.canvas.update()
-                QApplication.processEvents()
-            
-            # ==================== NOW CREATE NEW PLOT ====================
-            # Get settings
+            # ==================== END CLEARING ====================
+                        
             max_range = self.range_spinner.value()
             mask_outside = True
             plot_fast = (self.plot_type_combo.currentText() == "Fast")
@@ -3857,7 +3889,7 @@ class RadarViewer(QMainWindow):
             canvas_width_px = self.canvas.width()
             canvas_height_px = self.canvas.height()
             canvas_dpi, device_ratio = self.get_system_dpi()
-            
+                            
             # Handle different data types
             if self.data_type == 'radar':
                 self._plot_radar_data(max_range, mask_outside, plot_fast, max_height, 
@@ -4103,12 +4135,10 @@ class RadarViewer(QMainWindow):
         # Force garbage collection
         gc.collect()
         
-        # Draw new figure with full render
-        self.canvas.draw()
-        self.canvas.flush_events()
+        # Draw new figure - USE NON-BLOCKING DRAW
+        self.canvas.draw_idle()  # ← CHANGED: Non-blocking prevents flicker
         
-        # Ensure Qt processes the paint event
-        self.canvas.update()
+        # Single process events call
         QApplication.processEvents()
 
     def _plot_gridded_data(self, max_range, max_height, canvas_width_px, canvas_height_px, canvas_dpi):
@@ -4415,7 +4445,7 @@ class RadarViewer(QMainWindow):
                 self.update_field_list()
                 self.update_sweep_list()
                 self.detect_scan_type()
-                
+                self.update_ui_for_data_type()
                 self._loading = False
                 self.update_plot()
             
@@ -4530,6 +4560,7 @@ class RadarViewer(QMainWindow):
             self.update_field_list()
             self.update_sweep_list()
             self.detect_scan_type()
+            self.update_ui_for_data_type()
             self._loading = False  # END: Re-enable updates
             
             # Now do ONE final plot update
@@ -4577,6 +4608,37 @@ class RadarViewer(QMainWindow):
                 # Close all matplotlib figures
                 plt.close('all')
                 
+                # ==================== RECREATE CANVAS TO CLEAR GHOSTS ====================
+                if hasattr(self, 'canvas') and self.canvas:
+                    # Remove old canvas
+                    self.layout.removeWidget(self.canvas)
+                    
+                    if self.canvas.figure:
+                        plt.close(self.canvas.figure)
+                    
+                    self.canvas.deleteLater()
+                    QApplication.processEvents()
+                    gc.collect()
+                    
+                    # Create fresh canvas
+                    self.figure = plt.figure(figsize=(12, 8), dpi=100)
+                    self.canvas = FigureCanvas(self.figure)
+                    self.canvas.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+                    self.canvas.setUpdatesEnabled(True)
+                    self.canvas.setMinimumSize(400, 300)
+                    self.canvas.setStyleSheet("background-color: white;")
+                    self.figure.patch.set_facecolor('white')
+                    self.canvas.setFocusPolicy(Qt.StrongFocus)
+                    
+                    # Add back to layout
+                    self.layout.addWidget(self.canvas, stretch=1)
+                    
+                    # Reconnect resize handler
+                    self.canvas.mpl_connect('resize_event', self._on_canvas_resize)
+                    
+                    QApplication.processEvents()
+                # ==================== END CANVAS RECREATION ====================
+                
                 # ==================== CLEAR RADAR/GRID DATA ====================
                 self.radar = None
                 self.gridded_data = None
@@ -4613,12 +4675,8 @@ class RadarViewer(QMainWindow):
                         self.vmax_spin.setValue(70)
                         self.cmap_combo.setCurrentIndex(0)
                 
-                # ==================== CLEAR CANVAS ====================
-                self.canvas.figure.clear()
-                self.canvas.draw()
-                
                 # ==================== UPDATE STATUS ====================
-                self.statusBar().showMessage("All data cleared - Ready to load new data")
+                self.statusBar().showMessage("All data cleared - Canvas recreated")
                                 
         except Exception as e:
                 self.statusBar().showMessage(f"Error clearing data: {str(e)}")
@@ -4626,7 +4684,7 @@ class RadarViewer(QMainWindow):
                 import traceback
                 traceback.print_exc()
     
-    # ==================== ZOOM METHODS (ADD THESE) ====================
+    # ==================== ZOOM METHODS ====================
 
     def toggle_zoom_mode(self, checked):
         """Toggle zoom mode on/off"""
@@ -5916,14 +5974,29 @@ class GriddedPlotter:
             import pandas as pd
             import matplotlib.dates as mdates
             
-            # ==================== SMART TIME CONVERSION ====================
+            # ==================== SMART TIME CONVERSION (FIXED) ====================
             time_values = time_coord.values
             
-            # Method 1: Check if values look like days since epoch
-            # Days since 1970 typically range from ~10000 (1997) to ~20000 (2024)
-            if time_values.min() > 1000 and time_values.max() < 50000:
-                # Convert from days to datetime
-                time_vals = pd.to_datetime(time_values, unit='D', origin='unix')
+            # Check the dtype first
+            time_dtype = time_values.dtype
+            
+            # Method 0: Already datetime64 - just convert to pandas
+            if np.issubdtype(time_dtype, np.datetime64):
+                time_vals = pd.to_datetime(time_values)
+            
+            # Method 1: Check if values look like days since epoch (numeric check)
+            elif np.issubdtype(time_dtype, np.number):
+                if time_values.min() > 1000 and time_values.max() < 50000:
+                    # Convert from days to datetime
+                    time_vals = pd.to_datetime(time_values, unit='D', origin='unix')
+                
+                # Method 1b: Check if values are very large (seconds since epoch)
+                elif time_values.min() > 1e9:
+                    time_vals = pd.to_datetime(time_values, unit='s')
+                
+                else:
+                    # Unknown numeric format, try direct conversion
+                    time_vals = pd.to_datetime(time_values)
             
             # Method 2: Check if time has units attribute (CF convention)
             elif 'units' in time_coord.attrs:
@@ -5954,17 +6027,30 @@ class GriddedPlotter:
                             time_vals = reference_time + pd.to_timedelta(time_values, unit='D')
                         else:
                             raise ValueError(f"Unknown time unit in: {units_str}")
-                        
                     else:
                         raise ValueError(f"Could not parse units: {units_str}")
             
-            # Method 3: Check if values are very large (seconds since epoch)
-            elif time_values.min() > 1e9:
-                time_vals = pd.to_datetime(time_values, unit='s')
-            
-            # Method 4: Direct pandas (for proper datetime objects)
+            # Method 3: Try direct pandas conversion as last resort
             else:
-                time_vals = pd.to_datetime(time_values)
+                try:
+                    time_vals = pd.to_datetime(time_values)
+                except Exception as e:
+                    print(f"   Direct conversion failed: {e}")
+                    # Give up, use numeric fallback
+                    time_vals = None
+            
+            # Fallback if all conversions failed
+            if time_vals is None or len(time_vals) == 0:
+                print(f"   ⚠️ All time conversions failed, using numeric fallback")
+                time_vals = time_coord.values
+                time_numeric = np.arange(len(time_vals))
+                time_label = 'Time Index'
+                use_time_formatter = False
+            else:
+                # Convert to matplotlib dates
+                time_numeric = mdates.date2num(time_vals)
+                time_label = 'Time (UTC)'
+                use_time_formatter = True
             # ==================== END SMART CONVERSION ====================
             
             # Convert to matplotlib dates
