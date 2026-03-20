@@ -6440,7 +6440,7 @@ class RadarPlotter:
             # Ocean and lakes first (zorder 0-1)
             ax.add_feature(cfeature.OCEAN.with_scale('50m'), facecolor="#414141", zorder=0)
             ax.add_feature(cfeature.LAKES.with_scale('50m'), facecolor="#414141", 
-                          edgecolor='white', lw=0.25, zorder=1)
+                          edgecolor='white', lw=0.25, zorder=0)
             
             # ==================== MINOR ISLANDS (LANDMASS) ====================
             # Show small islands as dark gray landmass (before data, after ocean)
