@@ -113,7 +113,9 @@ A professional, interactive radar data visualization tool built for the NASA GPM
 
 ### Basic Usage
 
-    python GVview.py
+    conda activate gvview
+    chmod +x GVview.py
+    ./GVview.py
 
 ### Quick Start Guide
 
