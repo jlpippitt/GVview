@@ -1,5 +1,22 @@
 #!/usr/bin/env python
 
+'''
+# ==================== FIX FOR PYINSTALLER: SKIP OPTIONAL MODULES ====================
+import sys
+
+class _MockModule:
+    def __getattr__(self, name):
+        return _MockModule()
+    def __call__(self, *args, **kwargs):
+        return _MockModule()
+
+sys.modules['wradlib'] = _MockModule()
+sys.modules['cmweather'] = _MockModule()
+sys.modules['wradlib.vis'] = _MockModule()
+sys.modules['wradlib.util'] = _MockModule()
+sys.modules['cmweather.cm_colorblind'] = _MockModule()
+# ==================== END FIX ====================
+'''
 import os, sys
 os.environ['PYART_QUIET'] = '1'  # Suppress PyART citation
 
@@ -20,6 +37,7 @@ import matplotlib.pyplot as plt
 import matplotlib.colors as colors
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.colors import Normalize
+import cmweather
 
 # ==================== SUPPRESS NSOpenPanel WARNING DURING PyQt5 IMPORT ====================
 if sys.platform == "darwin":
@@ -215,6 +233,16 @@ _CMAPHID_EC = colors.ListedColormap(_EC_HID_COLORS)
 _CMAP_METH = colors.ListedColormap(_HID_COLORS_SUMMER[0:6])
 
 _FIELD_CONFIGS = {
+        # ==================== PARSIVEL DISDROMETER ====================
+        'Drop Size Distribution': {
+            'units': 'Drops per (m³/mm)', 
+            'vmin': -4,  # 10^-4 in log scale
+            'vmax': 4,   # 10^4 in log scale
+            'Nbins': 0,
+            'title': 'Drop Size Distribution', 
+            'cmap': 'jet'
+        },
+        # ==================== RADAR FIELDS ====================
         'CZ': {'units': 'Zh [dBZ]', 'vmin': 0, 'vmax': 70, 'Nbins': 14, 
                'title': 'Corrected Reflectivity [dBZ]', 'cmap': check_cm('NWSRef')},
         'DZ': {'units': 'Zh [dBZ]', 'vmin': 0, 'vmax': 70, 'Nbins': 14,
@@ -263,6 +291,8 @@ _FIELD_CONFIGS = {
                'title': 'Ice Mass [g/m^3]', 'cmap': 'turbo'},
         'RC': {'units': 'HIDRO Rain Rate [mm/hr]', 'vmin': 1e-2, 'vmax': 3e2, 'Nbins': 0,
                'title': 'HIDRO Rain Rate [mm/hr]', 'cmap': check_cm('RefDiff')},
+        'RT': {'units': 'Tropical HIDRO Rain Rate [mm/hr]', 'vmin': 1e-2, 'vmax': 3e2, 'Nbins': 0,
+               'title': 'Tropical HIDRO Rain Rate [mm/hr]', 'cmap': check_cm('RefDiff')},               
         'RP': {'units': 'PolZR Rain Rate [mm/hr]', 'vmin': 1e-2, 'vmax': 3e2, 'Nbins': 0,
                'title': 'PolZR Rain Rate [mm/hr]', 'cmap': check_cm('RefDiff')},
         'RA': {'units': 'Attenuation Rain Rate [mm/hr]', 'vmin': 1e-2, 'vmax': 3e2, 'Nbins': 0,
@@ -470,6 +500,12 @@ class PlottingCache:
             return {"data": rc, "units": "mm/h",
                    "long_name": "HIDRO Rainfall Rate", "_FillValue": -32767.0,
                    "standard_name": "HIDRO Rainfall Rate"}
+        elif field_name == 'RT':
+            rt = radar.fields['RT']['data'].copy()
+            rt[rt < 0.01] = np.nan
+            return {"data": rt, "units": "mm/h",
+                   "long_name": "Tropical HIDRO Rainfall Rate", "_FillValue": -32767.0,
+                   "standard_name": "Tropical HIDRO Rainfall Rate"}        
         elif field_name == 'RP':
             rp = radar.fields['RP']['data'].copy()
             rp[rp < 0.01] = np.nan
@@ -2527,6 +2563,7 @@ class RadarViewer(QMainWindow):
         # Add data type tracking
         self.data_type = None
         self.gridded_data = None
+        self.parsivel_data = None
         
         # Initialize settings
         self.qsettings = QSettings("GPM-GV", "RadarViewer")
@@ -2854,6 +2891,15 @@ class RadarViewer(QMainWindow):
             else:
                 self.height_spinner.setEnabled(False)
                 self.height_spinner.setToolTip("Height control only for RHI scans")
+
+        elif self.data_type == 'parsivel':
+            # Parsivel data - disable radar-specific controls
+            self.range_spinner.setEnabled(False)
+            self.range_spinner.setToolTip("Range control disabled for Parsivel data")
+            self.height_spinner.setEnabled(False)
+            self.height_spinner.setToolTip("Height control disabled for Parsivel data")
+            self.plot_type_combo.setEnabled(False)
+            self.plot_type_combo.setToolTip("Plot type fixed for Parsivel data")
         
         elif self.data_type in ['grid', 'xarray']:
             # Check scan type for gridded data
@@ -2937,12 +2983,28 @@ class RadarViewer(QMainWindow):
     
     def show_settings(self):
         """Show the settings dialog"""
-        if not self.radar and not self.gridded_data:
+        if not self.radar and not self.gridded_data and not self.parsivel_data:
             QMessageBox.warning(self, "No Data", "Please load data first.")
             return
     
         # Pass the appropriate data object to the dialog
-        data_obj = self.radar if self.radar else self.gridded_data
+        if self.data_type == 'radar':
+            data_obj = self.radar
+        elif self.data_type in ['grid', 'xarray']:
+            data_obj = self.gridded_data
+        elif self.data_type == 'parsivel':
+            # For Parsivel, create a mock object with the fields
+            # This allows the settings dialog to show available fields
+            class ParseivelMock:
+                def __init__(self, parsivel_data):
+                    self.fields = {}
+                    # Add the two plot types as "fields"
+                    self.fields['Drop Size Distribution'] = {'units': '', 'long_name': 'Drop Size Distribution'}
+                    self.fields['Integral Parameters'] = {'units': '', 'long_name': 'Integral Parameters'}
+            
+            data_obj = ParseivelMock(self.parsivel_data)
+        else:
+            data_obj = None
         
         # Create dialog fresh each time (don't reuse)
         dialog = SettingsDialog(self, data_obj, self.settings)
@@ -2963,6 +3025,9 @@ class RadarViewer(QMainWindow):
             return
         elif self.data_type in ['grid', 'xarray'] and not self.gridded_data:
             QMessageBox.warning(self, "No Data", "Please load gridded data first.")
+            return
+        elif self.data_type == 'parsivel' and not self.parsivel_data:
+            QMessageBox.warning(self, "No Data", "Please load Parsivel data first.")
             return
         elif not self.data_type:
             QMessageBox.warning(self, "No Data", "Please load data first.")
@@ -3119,6 +3184,51 @@ class RadarViewer(QMainWindow):
             info.append(f"\nAvailable Fields ({len(grid.fields)}):")
             for field in grid.fields.keys():
                 info.append(f"  - {field}")
+                
+        elif self.parsivel_data:
+            # Parsivel disdrometer data
+            info.append(f"Data Type: Parsivel Disdrometer")
+            
+            metadata = self.parsivel_data['metadata']
+            
+            info.append(f"Site: {metadata.get('site', 'Unknown')}")
+            info.append(f"Instrument: {metadata.get('instrument', 'Unknown')}")
+            info.append(f"Date: {metadata.get('date', 'Unknown')}")
+            info.append(f"Creation Time: {metadata.get('creation_time', 'Unknown')}")
+            
+            # Data info
+            info.append(f"\nData Information:")
+            
+            Parms_DF = self.parsivel_data['Parms_DF']
+            PSD_DF = self.parsivel_data['PSD_DF']
+            Moments_DF = self.parsivel_data['Moments_DF']
+            
+            info.append(f"  Number of time records: {len(Parms_DF)}")
+            
+            if len(Parms_DF) > 0:
+                start_time = Parms_DF.index[0].strftime('%Y-%m-%d %H:%M:%S')
+                end_time = Parms_DF.index[-1].strftime('%Y-%m-%d %H:%M:%S')
+                duration = (Parms_DF.index[-1] - Parms_DF.index[0]).total_seconds() / 3600.0
+                
+                info.append(f"  Start time: {start_time} UTC")
+                info.append(f"  End time: {end_time} UTC")
+                info.append(f"  Duration: {duration:.2f} hours")
+            
+            info.append(f"\nDrop Size Distribution:")
+            info.append(f"  Number of size bins: {len(PSD_DF.columns)}")
+            info.append(f"  Size range: {PSD_DF.columns.min():.2f} - {PSD_DF.columns.max():.2f} mm")
+            
+            info.append(f"\nIntegral Parameters:")
+            for col in Parms_DF.columns:
+                values = Parms_DF[col].values
+                valid_values = values[~np.isnan(values)]
+                if len(valid_values) > 0:
+                    info.append(f"  {col}: {valid_values.min():.2f} - {valid_values.max():.2f}")
+            
+            info.append(f"\nMoments:")
+            info.append(f"  Number of moments: {len(Moments_DF.columns)}")
+            for col in Moments_DF.columns:
+                info.append(f"  {col}")
             
         elif self.data_type == 'xarray':
             ds = self.gridded_data
@@ -3166,6 +3276,20 @@ class RadarViewer(QMainWindow):
         elif self.data_type == 'xarray':
             # For xarray, create a dict-like structure
             fields = {var: self.gridded_data[var] for var in self.gridded_data.data_vars}
+        elif self.data_type == 'parsivel':
+            # Create a fields-like structure for Parsivel
+            fields = {
+                'Drop Size Distribution': {
+                    'units': 'Drops per (m³/mm)',
+                    'long_name': 'Drop Size Distribution Time Series',
+                    'data_range': 'Contour Plot'
+                },
+                'Integral Parameters': {
+                    'units': 'Various',
+                    'long_name': 'Rain Rate, dBZ, LWC, Dm, Dmax, Drops, Concentration',
+                    'data_range': 'Time Series'
+                }
+            }
         else:
             return
         
@@ -3177,7 +3301,14 @@ class RadarViewer(QMainWindow):
             # Field name
             table.setItem(i, 0, QTableWidgetItem(field_name))
             
-            # Units
+            # Handle Parsivel special case
+            if self.data_type == 'parsivel':
+                table.setItem(i, 1, QTableWidgetItem(field_data['units']))
+                table.setItem(i, 2, QTableWidgetItem(field_data['long_name']))
+                table.setItem(i, 3, QTableWidgetItem(field_data['data_range']))
+                continue
+            
+            # Units (for radar/grid/xarray)
             if self.data_type == 'xarray':
                 units = field_data.attrs.get('units', 'N/A')
             else:
@@ -3847,12 +3978,18 @@ class RadarViewer(QMainWindow):
     def update_plot(self):
         """Plot radar or gridded data with handling of sizing and cleanup"""
     
+        # ==================== EARLY VALIDATION ====================
         # Check what type of data we have and if it's loaded
         if self.data_type == 'radar':
             if not self.radar:
                 print("No radar data loaded")
                 return
             data_obj = self.radar
+        elif self.data_type == 'parsivel':
+            if not self.parsivel_data:
+                print("No Parsivel data loaded")
+                return
+            data_obj = self.parsivel_data 
         elif self.data_type in ['grid', 'xarray']:
             if not self.gridded_data:
                 print("No gridded data loaded")
@@ -3881,7 +4018,8 @@ class RadarViewer(QMainWindow):
             
             gc.collect()
             # ==================== END CLEARING ====================
-                        
+            
+            # ==================== GET CANVAS PARAMETERS (BEFORE PLOTTING) ====================
             max_range = self.range_spinner.value()
             mask_outside = True
             plot_fast = (self.plot_type_combo.currentText() == "Fast")
@@ -3891,11 +4029,14 @@ class RadarViewer(QMainWindow):
             canvas_width_px = self.canvas.width()
             canvas_height_px = self.canvas.height()
             canvas_dpi, device_ratio = self.get_system_dpi()
-                            
+            # ==================== END CANVAS PARAMETERS ====================
+                        
             # Handle different data types
             if self.data_type == 'radar':
                 self._plot_radar_data(max_range, mask_outside, plot_fast, max_height, 
                                     canvas_width_px, canvas_height_px, canvas_dpi, device_ratio)
+            elif self.data_type == 'parsivel':
+                self._plot_parsivel_data(canvas_width_px, canvas_height_px, canvas_dpi, device_ratio)
             elif self.data_type in ['grid', 'xarray']:
                 self._plot_gridded_data(max_range, max_height, 
                                       canvas_width_px, canvas_height_px, canvas_dpi)
@@ -4262,6 +4403,69 @@ class RadarViewer(QMainWindow):
         # Ensure Qt processes the paint event
         self.canvas.update()
         QApplication.processEvents()
+        
+    def _plot_parsivel_data(self, canvas_width_px, canvas_height_px, canvas_dpi, device_ratio):
+        """Plot Parsivel disdrometer data"""
+        
+        if not self.parsivel_data or not self.current_field:
+            print("No Parsivel data or field selected")
+            return
+        
+        # CREATE LAYOUT MANAGER
+        layout_mgr = LayoutManager(
+            canvas_width_px, canvas_height_px, canvas_dpi, device_ratio,
+            num_fields=1,
+            platform_name=platform.system(),
+            scan_type="TIME-HEIGHT"
+        )
+        
+        # Save for tuning dialog
+        self._last_layout_mgr = layout_mgr
+        
+        # Get figure size
+        fig_width, fig_height = layout_mgr.get_figure_size()
+        
+        self.figure = plt.figure(figsize=(fig_width, fig_height), dpi=canvas_dpi)
+        self.figure.patch.set_facecolor('white')
+        
+        # Get subplot position
+        positions = layout_mgr.get_subplot_positions()
+        pos = positions[0]
+        
+        # Create axis
+        ax = self.figure.add_axes(pos)
+        
+        # Create plotter
+        plotter = ParsevelPlotter(self.parsivel_data)
+        
+        # Plot based on selected field (PASS SETTINGS)
+        if self.current_field == "Drop Size Distribution":
+            plotter.plot_dsd(ax, settings=self.settings)  # ← Pass settings
+        elif self.current_field == "Integral Parameters":
+            plotter.plot_integral_parameters(ax)
+        
+        # Update status
+        site = self.parsivel_data['metadata']['site']
+        instrument = self.parsivel_data['metadata']['instrument']
+        self.statusBar().showMessage(
+            f"Displaying {self.current_field} from {site}/{instrument}"
+        )
+        
+        # Connect to canvas
+        old_figure = self.canvas.figure
+        self.canvas.figure = self.figure
+        
+        if old_figure is not None and old_figure != self.figure:
+            try:
+                old_figure.clear()
+                plt.close(old_figure)
+                del old_figure
+            except:
+                pass
+        
+        gc.collect()
+        self.canvas.draw_idle()
+        QApplication.processEvents()
             
     def load_radar_file(self):
         """Open a file dialog to select a radar or gridded data file"""
@@ -4394,6 +4598,24 @@ class RadarViewer(QMainWindow):
                             pass
             
                 # If PyART fails, try xarray
+                # Check if it's a Parsivel file BEFORE trying xarray
+                if loaded_data is None:
+                    is_parsivel, parsivel_attrs = self.is_parsivel_file(processed_file_path)
+                    
+                    if is_parsivel:
+                        try:
+                            loaded_data = self.load_parsivel_data(processed_file_path)
+                            data_type = 'parsivel'
+                            self.statusBar().showMessage(
+                                f"Loaded Parsivel data from {parsivel_attrs['site']}/{parsivel_attrs['instrument']}"
+                            )
+                        except Exception as e:
+                            self.statusBar().showMessage(f"Failed to load as Parsivel: {e}")
+                            print(f"Parsivel load error: {e}")
+                            import traceback
+                            traceback.print_exc()
+                
+                # If PyART and Parsivel fail, try xarray
                 if loaded_data is None:
                     try:
                         import xarray as xr
@@ -4401,8 +4623,8 @@ class RadarViewer(QMainWindow):
                         data_type = 'xarray'
                         self.statusBar().showMessage(f"Loaded as xarray Dataset")
                     except Exception as e:
-                        self.statusBar().showMessage(f"Failed to load with xarray: {e}")
-            
+                        self.statusBar().showMessage(f"Failed to load with xarray: {e}")   
+                                 
                 if data_type in ['grid', 'xarray']:
                     detected_scan_type = detect_gridded_scan_type(loaded_data, data_type)
                     self.scan_type = detected_scan_type
@@ -4430,9 +4652,14 @@ class RadarViewer(QMainWindow):
                             self.statusBar().showMessage(f"Split cuts merged successfully")
                         except Exception as e:
                             self.statusBar().showMessage(f"Warning: Could not merge split cuts")
+                elif data_type == 'parsivel':
+                    self.radar = None
+                    self.gridded_data = None
+                    self.parsivel_data = loaded_data
                 else:
                     self.radar = None
                     self.gridded_data = loaded_data
+                    self.parsivel_data = None
             
                 self.data_type = data_type
             
@@ -4457,6 +4684,111 @@ class RadarViewer(QMainWindow):
                 print(f"Error details: {e}")
                 import traceback
                 traceback.print_exc()
+
+    def is_parsivel_file(self, file_path):
+        """
+        Check if a NetCDF file is a Parsivel disdrometer file by examining global attributes.
+        
+        Returns: bool, dict (is_parsivel, attributes_dict)
+        """
+        try:
+            import xarray as xr
+            ds = xr.open_dataset(file_path)
+            
+            # Check for required Parsivel attributes
+            required_attrs = ['site', 'instrument', 'date', 'description']
+            has_attrs = all(attr in ds.attrs for attr in required_attrs)
+            
+            # Check if description contains "Parsivel" or "disdrometer"
+            is_parsivel = False
+            if has_attrs:
+                desc = ds.attrs.get('description', '').lower()
+                is_parsivel = 'parsivel' in desc or 'disdrometer' in desc
+            
+            # Check for expected data variables
+            expected_vars = ['PSD', 'Moments']  # Key variables in Parsivel files
+            has_vars = all(var in ds.data_vars for var in expected_vars)
+            
+            is_parsivel = is_parsivel and has_vars
+            
+            attrs = {
+                'site': ds.attrs.get('site', ''),
+                'instrument': ds.attrs.get('instrument', ''),
+                'date': ds.attrs.get('date', ''),
+                'creation_time': ds.attrs.get('creation_time', ''),
+                'description': ds.attrs.get('description', '')
+            }
+            
+            ds.close()
+            return is_parsivel, attrs
+            
+        except Exception as e:
+            print(f"Error checking file: {e}")
+            return False, {}
+    
+    def load_parsivel_data(self, file_path):
+        """
+        Load Parsivel NetCDF file and convert to DataFrames for plotting.
+        
+        Returns: dict with Parms_DF, PSD_DF, Moments_DF, and metadata
+        """
+        import xarray as xr
+        import pandas as pd
+        
+        ds = xr.open_dataset(file_path)
+        
+        # Extract metadata
+        metadata = {
+            'site': ds.attrs.get('site', 'Unknown'),
+            'instrument': ds.attrs.get('instrument', 'Unknown'),
+            'date': ds.attrs.get('date', 'Unknown'),
+            'creation_time': ds.attrs.get('creation_time', 'Unknown'),
+            'description': ds.attrs.get('description', '')
+        }
+        
+        # Parse date for plotting
+        date_str = metadata['date']  # Format: YYYY-MM-DD
+        if date_str != 'Unknown':
+            try:
+                year, month, day = date_str.split('-')
+                metadata['syear'] = year
+                metadata['smonth'] = month
+                metadata['sday'] = day
+            except:
+                metadata['syear'] = 'Unknown'
+                metadata['smonth'] = 'Unknown'
+                metadata['sday'] = 'Unknown'
+        
+        # Convert parameters to DataFrame
+        param_vars = ['Total_Drops', 'Concentration', 'LWC', 'Z', 'dBZ', 
+                      'Rain', 'Dm', 'Dmax', 'Sigma_M']
+        
+        parms_dict = {}
+        for var in param_vars:
+            if var in ds:
+                # Convert underscores back to spaces for column names
+                col_name = var.replace('_', ' ')
+                parms_dict[col_name] = ds[var].values
+        
+        Parms_DF = pd.DataFrame(parms_dict, index=pd.to_datetime(ds['time'].values))
+        
+        # Convert PSD to DataFrame
+        PSD_DF = ds['PSD'].to_pandas()
+        
+        # Convert Moments to DataFrame
+        Moments_DF = ds['Moments'].to_pandas()
+        # Rename columns to M0, M1, M2, etc.
+        Moments_DF.columns = [f'M{i}' for i in range(len(Moments_DF.columns))]
+        
+        ds.close()
+        
+        return {
+            'Parms_DF': Parms_DF,
+            'PSD_DF': PSD_DF,
+            'Moments_DF': Moments_DF,
+            'metadata': metadata,
+            'raw_dataset': None  # We don't keep the xarray open
+        }
                 
     def load_nexrad_data(self):
         """Load the latest NEXRAD data for selected site"""
@@ -4536,6 +4868,7 @@ class RadarViewer(QMainWindow):
             if data_type == 'radar':
                 self.radar = loaded_data
                 self.gridded_data = None
+                self.parsivel_data = None
                     
                 # NEXRAD split-cut merging
                 if self.radar.metadata.get('original_container') == 'NEXRAD Level II':
@@ -4549,6 +4882,7 @@ class RadarViewer(QMainWindow):
             else:
                 self.radar = None
                 self.gridded_data = loaded_data
+                self.parsivel_data = None
             
             self.data_type = data_type
         
@@ -4645,6 +4979,7 @@ class RadarViewer(QMainWindow):
                 self.radar = None
                 self.gridded_data = None
                 self.data_type = None
+                self.parsivel_data = None
                 
                 # ==================== RESET FIELD/SWEEP DATA ====================
                 self.current_field = None
@@ -4960,6 +5295,12 @@ class RadarViewer(QMainWindow):
                     self.current_field = field
                     break
         
+        elif self.data_type == 'parsivel' and self.parsivel_data:
+            # Parsivel has two plot types
+            self.field_combo.addItem("Drop Size Distribution")
+            self.field_combo.addItem("Integral Parameters")
+            self.current_field = "Drop Size Distribution"
+        
         elif self.data_type in ['grid', 'xarray'] and self.gridded_data:
             # ==================== FILTER GRIDDED DATA FIELDS ====================
             # Get only plottable fields (exclude metadata)
@@ -4996,6 +5337,11 @@ class RadarViewer(QMainWindow):
                 else:  # RHI
                     angle = self.radar.fixed_angle['data'][i]
                     self.sweep_combo.addItem(f"Azimuth {i}: {angle:.1f}°")
+                    
+        elif self.data_type == 'parsivel' and self.parsivel_data:
+            # Parsivel has only one "sweep" (full time series)
+            self.sweep_combo.addItem("Full Time Series")
+            self.current_sweep = 0
         
         elif self.data_type == 'grid' and self.gridded_data:
             # PyART Grid - use z levels
@@ -5162,7 +5508,7 @@ class RadarViewer(QMainWindow):
         """Save the current plot as an image file"""
         
         # Check if any data is loaded
-        if not self.radar and not self.gridded_data:
+        if not self.radar and not self.gridded_data and not self.parsivel_data:
             self.statusBar().showMessage("No data loaded")
             return
         
@@ -5220,6 +5566,21 @@ class RadarViewer(QMainWindow):
                     default_name = f"{scan}_{field}_{location}_{time_str}.png"
                 else:
                     default_name = f"{scan}_{field}_{time_str}.png"
+
+            elif self.parsivel_data:
+                # Parsivel data - use site, instrument, and date
+                site = self.parsivel_data['metadata'].get('site', 'unknown')
+                instrument = self.parsivel_data['metadata'].get('instrument', 'unknown')
+                date_str = self.parsivel_data['metadata'].get('date', 'unknown')
+                
+                # Clean up date string (YYYY-MM-DD -> YYYYMMDD)
+                date_clean = date_str.replace('-', '')
+                
+                # Get field type (DSD or Parameters)
+                field = self.current_field if self.current_field else "data"
+                field_short = "DSD" if "Distribution" in field else "Params"
+                
+                default_name = f"{site}_{instrument}_{field_short}_{date_clean}.png"
             
             # Clean up filename (remove spaces, special chars)
             default_name = default_name.replace(' ', '_').replace('/', '_').replace(':', '_')
@@ -6205,6 +6566,222 @@ class GriddedPlotter:
         except:
             pass
             
+class ParsevelPlotter:
+    """Class to handle Parsivel disdrometer data plotting"""
+    
+    def __init__(self, parsivel_data):
+        self.data = parsivel_data
+        self.Parms_DF = parsivel_data['Parms_DF']
+        self.PSD_DF = parsivel_data['PSD_DF']
+        self.Moments_DF = parsivel_data['Moments_DF']
+        self.metadata = parsivel_data['metadata']
+    
+    def plot_dsd(self, ax, settings=None):
+        """Plot drop size distribution as time-height contour"""
+        from matplotlib.ticker import LogFormatterSciNotation
+        import matplotlib.dates as mdates
+        
+        color = 'black'
+        
+        # ==================== GET COLORBAR SETTINGS ====================
+        field_name = 'Drop Size Distribution'
+        
+        # Default values (log scale: 10^-4 to 10^4)
+        vmin_log = -4
+        vmax_log = 4
+        cmap = 'jet'
+        
+        # Apply custom settings if available
+        if settings:
+            custom_vmin = settings.get_field_setting(field_name, 'vmin')
+            custom_vmax = settings.get_field_setting(field_name, 'vmax')
+            custom_cmap = settings.get_field_setting(field_name, 'cmap')
+            
+            if custom_vmin is not None:
+                vmin_log = custom_vmin
+            if custom_vmax is not None:
+                vmax_log = custom_vmax
+            if custom_cmap:
+                if custom_cmap in _GV_COLORMAPS:
+                    cmap = _GV_COLORMAPS[custom_cmap]
+                else:
+                    try:
+                        cmap = custom_cmap
+                    except:
+                        cmap = 'jet'  # Fallback
+        
+        # Create levels for contour plot (logarithmic)
+        levels = np.logspace(vmin_log, vmax_log, base=10, num=17)
+        
+        # Colorbar tick levels (fewer for cleaner display)
+        cb_levels = np.logspace(vmin_log, vmax_log, base=10, num=9)
+        # ==================== END SETTINGS ====================
+        
+        # Plot the contour
+        cf = ax.contourf(self.PSD_DF.index.values, self.PSD_DF.columns.values, 
+                        self.PSD_DF.values.T,
+                        cmap=cmap, levels=levels, norm=colors.LogNorm())
+        
+        ax.set_ylabel('Drop Diameter [mm]', fontsize=10)
+        ax.set_ylim((0, 10))
+        ax.set_xlabel('Time (UTC)', fontsize=10)
+        
+        # ==================== FORMAT TIME AXIS ====================
+        time_span_hours = (self.PSD_DF.index[-1] - self.PSD_DF.index[0]).total_seconds() / 3600.0
+        
+        if time_span_hours < 2:
+            ax.xaxis.set_major_locator(mdates.MinuteLocator(interval=10))
+            ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
+        elif time_span_hours < 6:
+            ax.xaxis.set_major_locator(mdates.MinuteLocator(interval=30))
+            ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
+        elif time_span_hours < 24:
+            ax.xaxis.set_major_locator(mdates.HourLocator(interval=1))
+            ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M'))
+        else:
+            ax.xaxis.set_major_locator(mdates.HourLocator(interval=6))
+            ax.xaxis.set_major_formatter(mdates.DateFormatter('%m/%d\n%H:%M'))
+        
+        plt.setp(ax.xaxis.get_majorticklabels(), rotation=45, ha='right', fontsize=8)
+        # ==================== END TIME FORMATTING ====================
+        
+        # Add colorbar
+        cb = plt.colorbar(cf, ax=ax, location='bottom', fraction=0.125, ticks=cb_levels,
+                         label='Drops per ($m^{3}$/mm)', pad=0.175, aspect=40)
+        
+        cb.formatter = LogFormatterSciNotation(base=10)
+        cb.update_ticks()
+        
+        ax.grid(True, alpha=0.3, color='white', linestyle=':', linewidth=0.5)
+        
+        # Add title
+        site = self.metadata['site']
+        instrument = self.metadata['instrument']
+        smonth = self.metadata.get('smonth', '??')
+        sday = self.metadata.get('sday', '??')
+        syear = self.metadata.get('syear', '????')
+        
+        title = f'{site}/{instrument} {smonth}/{sday}/{syear} - Drop Size Distribution'
+        ax.set_title(title, fontsize=10, fontweight='bold', pad=10)
+    
+    def plot_integral_parameters(self, ax):
+        """Plot integral parameters as time series on a single axis"""
+        import matplotlib.dates as mdates
+        
+        color = 'black'
+        
+        # ==================== GET FIGURE REFERENCE FIRST ====================
+        fig = ax.figure
+        
+        # Get the position of the main axis
+        pos = ax.get_position()
+        ax.remove()  # Remove the placeholder axis
+        
+        # ==================== CREATE GRIDSPEC IN THAT POSITION ====================
+        from matplotlib.gridspec import GridSpec
+        
+        gs = GridSpec(6, 1, left=pos.x0, right=pos.x0 + pos.width,
+                     bottom=pos.y0, top=pos.y0 + pos.height,
+                     hspace=0.3, wspace=0.1)  # Reduced hspace since no x-labels
+        
+        # ==================== CALCULATE TIME SPAN FOR FORMATTING ====================
+        time_span_hours = (self.Parms_DF.index[-1] - self.Parms_DF.index[0]).total_seconds() / 3600.0
+        
+        # Choose time formatter based on time span
+        if time_span_hours < 2:
+            major_locator = mdates.MinuteLocator(interval=10)
+            major_formatter = mdates.DateFormatter('%H:%M')
+        elif time_span_hours < 6:
+            major_locator = mdates.MinuteLocator(interval=30)
+            major_formatter = mdates.DateFormatter('%H:%M')
+        elif time_span_hours < 24:
+            major_locator = mdates.HourLocator(interval=1)
+            major_formatter = mdates.DateFormatter('%H:%M')
+        else:
+            major_locator = mdates.HourLocator(interval=6)
+            major_formatter = mdates.DateFormatter('%m/%d\n%H:%M')
+        
+        # ==================== PLOT EACH PARAMETER ====================
+        # Rain Rate
+        ax1 = fig.add_subplot(gs[0])
+        ax1.plot(self.Parms_DF.index, self.Parms_DF['Rain'].values, 
+                color=color, linewidth=1.0)
+        ax1.set_ylabel('Rain Rate\n(mm/hr)', fontsize=8)
+        ax1.grid(True, alpha=0.3, linestyle=':', linewidth=0.5)
+        ax1.xaxis.set_major_locator(major_locator)
+        ax1.xaxis.set_major_formatter(major_formatter)
+        ax1.tick_params(axis='x', labelbottom=False)  # Hide x-axis labels
+        ax1.tick_params(axis='y', labelsize=7)
+        
+        # Reflectivity
+        ax2 = fig.add_subplot(gs[1])
+        ax2.plot(self.Parms_DF.index, self.Parms_DF['dBZ'].values, 
+                color=color, linewidth=1.0)
+        ax2.set_ylabel('Reflectivity\n(dBZ)', fontsize=8)
+        ax2.grid(True, alpha=0.3, linestyle=':', linewidth=0.5)
+        ax2.xaxis.set_major_locator(major_locator)
+        ax2.xaxis.set_major_formatter(major_formatter)
+        ax2.tick_params(axis='x', labelbottom=False)  # Hide x-axis labels
+        ax2.tick_params(axis='y', labelsize=7)
+        
+        # LWC
+        ax3 = fig.add_subplot(gs[2])
+        ax3.plot(self.Parms_DF.index, self.Parms_DF['LWC'].values, 
+                color=color, linewidth=1.0)
+        ax3.set_ylabel('LWC\n(g/m³)', fontsize=8)
+        ax3.grid(True, alpha=0.3, linestyle=':', linewidth=0.5)
+        ax3.xaxis.set_major_locator(major_locator)
+        ax3.xaxis.set_major_formatter(major_formatter)
+        ax3.tick_params(axis='x', labelbottom=False)  # Hide x-axis labels
+        ax3.tick_params(axis='y', labelsize=7)
+        
+        # Dm & Dmax
+        ax4 = fig.add_subplot(gs[3])
+        ax4.plot(self.Parms_DF.index, self.Parms_DF['Dm'].values, 
+                color=color, linewidth=1.0, label='Dm')
+        ax4.plot(self.Parms_DF.index, self.Parms_DF['Dmax'].values, 
+                color='red', linewidth=1.0, alpha=0.5, label='Dmax')
+        ax4.set_ylabel('Diameter\n(mm)', fontsize=8)
+        ax4.legend(fontsize=6, loc='upper right')
+        ax4.grid(True, alpha=0.3, linestyle=':', linewidth=0.5)
+        ax4.xaxis.set_major_locator(major_locator)
+        ax4.xaxis.set_major_formatter(major_formatter)
+        ax4.tick_params(axis='x', labelbottom=False)  # Hide x-axis labels
+        ax4.tick_params(axis='y', labelsize=7)
+        
+        # Total Drops
+        ax5 = fig.add_subplot(gs[4])
+        ax5.plot(self.Parms_DF.index, self.Parms_DF['Total Drops'].values, 
+                color=color, linewidth=1.0)
+        ax5.set_ylabel('Total\nDrops', fontsize=8)
+        ax5.grid(True, alpha=0.3, linestyle=':', linewidth=0.5)
+        ax5.xaxis.set_major_locator(major_locator)
+        ax5.xaxis.set_major_formatter(major_formatter)
+        ax5.tick_params(axis='x', labelbottom=False)  # Hide x-axis labels
+        ax5.tick_params(axis='y', labelsize=7)
+        
+        # Concentration (ONLY THIS ONE SHOWS X-AXIS LABELS)
+        ax6 = fig.add_subplot(gs[5])
+        ax6.plot(self.Parms_DF.index, self.Parms_DF['Concentration'].values, 
+                color=color, linewidth=1.0)
+        ax6.set_ylabel('Concentration\n(m⁻³)', fontsize=8)
+        ax6.set_xlabel('Time (UTC)', fontsize=9)
+        ax6.grid(True, alpha=0.3, linestyle=':', linewidth=0.5)
+        ax6.xaxis.set_major_locator(major_locator)
+        ax6.xaxis.set_major_formatter(major_formatter)
+        plt.setp(ax6.xaxis.get_majorticklabels(), ha='right', fontsize=7)  # ONLY ax6 shows labels
+        ax6.tick_params(axis='y', labelsize=7)
+        
+        # ==================== OVERALL TITLE ====================
+        site = self.metadata['site']
+        instrument = self.metadata['instrument']
+        smonth = self.metadata.get('smonth', '??')
+        sday = self.metadata.get('sday', '??')
+        syear = self.metadata.get('syear', '????')
+        
+        fig.suptitle(f'{site}/{instrument} {smonth}/{sday}/{syear} - Integral Parameters', 
+                    fontsize=12, fontweight='bold', y=0.98)      
+                          
 class RadarPlotter:
     """Class to handle radar plotting using the existing plotting code with settings support"""
     
@@ -6270,7 +6847,7 @@ class RadarPlotter:
         ax.set_facecolor('black')
         
         # Handle special rain rate fields with your original processing
-        if field in ['RC', 'RP', 'RA']:
+        if field in ['RC', 'RP', 'RA','RT']:
             processed_field = self._cache.get_processed_field(self.radar, field)
             if processed_field:
                 plot_name = f"{field}_plot"
@@ -6388,7 +6965,7 @@ class RadarPlotter:
         ax.set_facecolor('black')
         
         # Handle special rain rate fields
-        if field in ['RC', 'RP', 'RA']:
+        if field in ['RC', 'RP', 'RA','RT']:
             processed_field = self._cache.get_processed_field(self.radar, field)
             if processed_field:
                 plot_name = f"{field}_plot"
@@ -6657,7 +7234,7 @@ class NexradDownloader(QThread):
             self.progress.emit(f"Fetching file list for {self.site}...")
             
             # Download realtime data list
-            url = f"https://nomads.ncep.noaa.gov/pub/data/nccf/radar/nexrad_level2/{self.site}/dir.list"
+            url = f"https://tgftp.nws.noaa.gov/data/radar/nexrad_level2/{self.site}/dir.list"
             
             response = requests.get(url, timeout=30)
             
@@ -6714,7 +7291,7 @@ class NexradDownloader(QThread):
             for i, filename in enumerate(files_to_download):
                 self.progress.emit(f"Downloading {filename} ({i+1}/{len(files_to_download)})...")
                 
-                file_url = f"https://nomads.ncep.noaa.gov/pub/data/nccf/radar/nexrad_level2/{self.site}/{filename}"
+                file_url = f"https://tgftp.nws.noaa.gov/data/radar/nexrad_level2/{self.site}/{filename}"
                 
                 file_response = requests.get(file_url, timeout=120)
                 
